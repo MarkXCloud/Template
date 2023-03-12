@@ -32,24 +32,26 @@ def parse_dataset_kwargs(cfg, data_cfg: dict) -> dict:
         params['batch_size'] = cfg.batch_size
     if hasattr(cfg, 'seed'):
         params['seed'] = cfg.seed
+    if hasattr(cfg, 'num_workers'):
+        params['num_workers'] = cfg.num_workers
 
     return params
 
 
-def dataset2loader(dataset, batch_size, seed, is_distributed=False):
+def dataset2loader(dataset, batch_size, seed,num_workers, is_distributed=False):
     sampler = DistributedSampler(dataset, seed=seed) if is_distributed else None
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=(sampler is None), sampler=sampler)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=(sampler is None), sampler=sampler,num_workers=num_workers)
     return loader
 
 
 @register_dataset
-def cifar10(root, batch_size, transforms, target_transforms, seed, is_distributed=False):
+def cifar10(root, batch_size, transforms, target_transforms, seed,num_workers, is_distributed=False):
     train_set = torchvision.datasets.CIFAR10(root=root, train=True, transform=transforms,
                                              target_transform=target_transforms)
     test_set = torchvision.datasets.CIFAR10(root=root, train=False, transform=transforms,
                                             target_transform=target_transforms)
-    train_loader = dataset2loader(train_set, batch_size=batch_size, is_distributed=is_distributed, seed=seed)
-    test_loader = dataset2loader(test_set, batch_size=1, is_distributed=is_distributed, seed=seed)
+    train_loader = dataset2loader(train_set, batch_size=batch_size, is_distributed=is_distributed, seed=seed,num_workers=num_workers)
+    test_loader = dataset2loader(test_set, batch_size=1, is_distributed=is_distributed, seed=seed,num_workers=num_workers)
     # need:
     # for epoch in range(start_epoch, n_epochs):
     # 	if is_distributed:
