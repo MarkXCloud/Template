@@ -1,4 +1,0 @@
-name: SGD
-lr: 1e-3
-momentum: 0
-weight_decay: 0

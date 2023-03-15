@@ -2,4 +2,6 @@ torch
 timm
 tqdm
 matplotlib
-pyyaml
+accelerate
+evaluate
+scikit-learn
