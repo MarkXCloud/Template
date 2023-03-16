@@ -1,73 +1,61 @@
 import torch
+import torch.nn as nn
+import timm
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
+import torchvision
 from torchvision import transforms
+import evaluate
+from utils import Saver
 
-model = dict(
-    model_name='resnet50',
-    pretrained=False,
-    num_classes=10
-)
+num_classes = 10
+model = timm.create_model(model_name='resnet26',
+                          pretrained=False,
+                          num_classes=num_classes)
+loss = nn.MSELoss()
 
-loss = dict(
-    name='MSE'
-)
+img_size = (3, 224, 224)
+batch_size=64
+classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+# target_transforms is for the transform on label, we first transform it
+# into LongTensor, then use one-hot encoding, at that time the tensor has shape (1, 10),
+# finally we eliminate the first dim and it turns into shape (10,)
+train_set = torchvision.datasets.CIFAR10(root='/data/wangzili',
+                                         train=True,
+                                         transform=transforms.Compose([
+                                             transforms.Resize(size=img_size[-1]),
+                                             transforms.ToTensor(),
+                                             transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                                                  std=(0.229, 0.224, 0.225))]),
+                                         target_transform=torchvision.transforms.Compose([
+                                             lambda x: torch.LongTensor([x]),
+                                             lambda x: F.one_hot(x, num_classes),
+                                             lambda x: x.squeeze(0),
+                                             lambda x: x.to(torch.float32)]),
+                                         )
+train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
 
-train_set = dict(
-    name='cifar10',
-    params=dict(
-        root='YOUR/PATH/TO/CIFAR10',
-        batch_size=32,
-        num_workers=4,
-        transforms=transforms.Compose([transforms.Resize(size=224),
-                                       transforms.ToTensor(),
-                                       transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]),
-        # target_transforms is for the transform on label, we first transform it
-        # into LongTensor, then use one-hot encoding, at that time the tensor has shape (1, 10),
-        # finally we eliminate the first dim and it turns into shape (10,)
-        target_transforms=transforms.Compose([lambda x: torch.LongTensor([x]),
-                                              lambda x: F.one_hot(x, 10),
-                                              lambda x: x.squeeze(0),
-                                              lambda x: x.to(torch.float32)]),
-        is_Train=True,
-        is_distributed=False
-    ),
+test_set = torchvision.datasets.CIFAR10(root='/data/wangzili',
+                                         train=False,
+                                         transform=transforms.Compose([
+                                             transforms.Resize(size=img_size[-1]),
+                                             transforms.ToTensor(),
+                                             transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                                                  std=(0.229, 0.224, 0.225))]),
+                                         target_transform=transforms.Compose([
+                                             lambda x: torch.LongTensor([x]),
+                                             lambda x: F.one_hot(x, num_classes),
+                                             lambda x: x.squeeze(0),
+                                             lambda x: x.to(torch.float32)]),
+                                         )
+test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
 
-    num_classes=10,
-    cls=('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
-)
+optimizer = torch.optim.AdamW(params=model.parameters(),lr=1e-3,weight_decay=1e-5)
 
-test_set = dict(
-    name='cifar10',
-    params=dict(
-        root='/data/wangzili',
-        batch_size=32,
-        num_workers=4,
-        transforms=transforms.Compose([transforms.Resize(size=224),
-                                       transforms.ToTensor(),
-                                       transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]),
-        # target_transforms is for the transform on label, we first transform it
-        # into LongTensor, then use one-hot encoding, at that time the tensor has shape (1, 10),
-        # finally we eliminate the first dim and it turns into shape (10,)
-        target_transforms=transforms.Compose([lambda x: torch.LongTensor([x]),
-                                              lambda x: F.one_hot(x, 10),
-                                              lambda x: x.squeeze(0),
-                                              lambda x: x.to(torch.float32)]),
-        is_Train=False,
-        is_distributed=False
-    ),
-    num_classes=10,
-    cls=('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck'),
-)
+epoch = 3
 
-optimizer = dict(
-    name='Adam',
-    params=dict(
-        lr=1e-3,
-        weight_decay=0.0
-    )
-)
 
-trainer = dict(
-    epoch=100,
-    seed=0
-)
+metric_tokens = ["accuracy"]
+metric = evaluate.combine(metric_tokens)
+
+saver = Saver(save_step=1,higher_is_better=True,monitor="accuracy")
