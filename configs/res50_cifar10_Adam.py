@@ -20,7 +20,7 @@ classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship'
 # target_transforms is for the transform on label, we first transform it
 # into LongTensor, then use one-hot encoding, at that time the tensor has shape (1, 10),
 # finally we eliminate the first dim and it turns into shape (10,)
-train_set = torchvision.datasets.CIFAR10(root='/data/wangzili',
+train_set = torchvision.datasets.CIFAR10(root='/data',
                                          train=True,
                                          transform=transforms.Compose([
                                              transforms.Resize(size=img_size[-1]),
@@ -35,7 +35,7 @@ train_set = torchvision.datasets.CIFAR10(root='/data/wangzili',
                                          )
 train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
 
-test_set = torchvision.datasets.CIFAR10(root='/data/wangzili',
+test_set = torchvision.datasets.CIFAR10(root='/data',
                                          train=False,
                                          transform=transforms.Compose([
                                              transforms.Resize(size=img_size[-1]),

@@ -6,11 +6,17 @@ from accelerate import Accelerator
 from accelerate.utils import set_seed
 from torchsummary import summary
 
-accelerator = Accelerator(log_with='wandb', project_dir="./runs")
+accelerator = Accelerator(log_with=['wandb'], project_dir='./runs/')
 
 
 class Trainer:
+    """
+    Trainer acts as a manager for the whole process of training, including loading every module, run log, init seed,
+    train, test and save.
+    """
+
     def __init__(self, config):
+        # load every module
         cfg = config.cfg
         assert cfg.endswith('.py'), "cfg file should be a .py file"
         module = cfg.replace('/', '.')[:-3]
@@ -24,8 +30,8 @@ class Trainer:
         self.epoch = module_loader.epoch
         self.metric = module_loader.metric
         self.saver = module_loader.saver
-        self.saver.load_save_dir(config.save_dir)
 
+        # basic info for the wandb log
         tracker_config = dict(
             epoch=self.epoch,
             model=self.model.__dict__.__getitem__('default_cfg')['architecture'],
@@ -94,7 +100,7 @@ class Trainer:
             self.saver.save_latest_model(self.model)
             self.saver.save_best_model(self.model, acc)
 
-            accelerator.log(**acc, step=e)
+            accelerator.log(acc, step=e)
         accelerator.end_training()
 
 
