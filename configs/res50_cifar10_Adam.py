@@ -8,6 +8,8 @@ from torchvision import transforms
 import evaluate
 from utils import Saver
 
+log_name = "example_project"
+
 num_classes = 10
 model = timm.create_model(model_name='resnet26',
                           pretrained=False,
@@ -51,6 +53,12 @@ test_set = torchvision.datasets.CIFAR10(root='/data',
 test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
 
 optimizer = torch.optim.AdamW(params=model.parameters(),lr=1e-3,weight_decay=1e-5)
+scheduler = torch.optim.lr_scheduler.SequentialLR(
+    optimizer=optimizer,
+    schedulers=[torch.optim.lr_scheduler.LinearLR(optimizer,start_factor=0.01,total_iters=5),
+        torch.optim.lr_scheduler.MultiStepLR(optimizer,milestones=[7,9],gamma=0.1)],
+    milestones=[5]
+)
 
 epoch = 3
 

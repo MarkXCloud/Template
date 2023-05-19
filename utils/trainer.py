@@ -27,6 +27,7 @@ class Trainer:
         self.train_loader = module_loader.train_loader
         self.test_loader = module_loader.test_loader
         self.optimizer = module_loader.optimizer
+        self.scheduler = module_loader.scheduler
         self.epoch = module_loader.epoch
         self.metric = module_loader.metric
         self.saver = module_loader.saver
@@ -34,21 +35,24 @@ class Trainer:
         # basic info for the wandb log
         tracker_config = dict(
             epoch=self.epoch,
-            model=self.model.__dict__.__getitem__('default_cfg')['architecture'],
+            model=self.model.__dict__['default_cfg']['architecture'],
             loss=self.loss.__class__.__name__,
             optimizer=self.optimizer.__class__.__name__,
-            learning_rate=self.optimizer.__dict__.__getitem__('param_groups')[0]['lr'],
-            weight_decay=self.optimizer.__dict__.__getitem__('param_groups')[0]['weight_decay'],
-            dataset=self.train_loader.__dict__.__getitem__('dataset'),
-            batch_size=self.train_loader.__dict__.__getitem__('batch_size')
+            scheduler=self.scheduler.__class__.__name__,
+            learning_rate=self.optimizer.__dict__['param_groups'][0]['lr'],
+            weight_decay=self.optimizer.__dict__['param_groups'][0]['weight_decay'],
+            dataset=self.train_loader.__dict__['dataset'],
+            batch_size=self.train_loader.__dict__['batch_size']
         )
 
-        accelerator.init_trackers("example_project", config=tracker_config)
+        accelerator.init_trackers(module_loader.log_name, config=tracker_config)
+
+        del module_loader
 
         device = accelerator.device
         self.model.to(device)
-        self.model, self.optimizer, self.train_loader, self.test_loader \
-            = accelerator.prepare(self.model, self.optimizer, self.train_loader, self.test_loader)
+        self.model, self.optimizer, self.scheduler, self.train_loader, self.test_loader \
+            = accelerator.prepare(self.model, self.optimizer, self.scheduler, self.train_loader, self.test_loader)
 
     def init_seeds(self, seed):
         # accelerate.set_seed() can seed all
@@ -59,11 +63,13 @@ class Trainer:
     @accelerator.on_main_process
     def show_model_info(self):
         unwrapped_model = accelerator.unwrap_model(self.model)
-        input_size = unwrapped_model.__dict__.__getitem__('default_cfg')['input_size']
+        input_size = unwrapped_model.__dict__['default_cfg']['input_size']
         print(summary(model=unwrapped_model,
                       input_size=input_size))
 
     def train(self):
+        loss_dict = {'train loss':1000,'test loss':1000}
+
         for e in range(self.epoch):
             train_pbar = tqdm(self.train_loader, disable=not accelerator.is_local_main_process)
             train_pbar.set_description(f'Train epoch {e}')
@@ -77,7 +83,10 @@ class Trainer:
                 accelerator.backward(loss)
                 self.optimizer.step()
 
-                train_pbar.set_postfix(loss=loss.cpu().item())
+                loss = loss.cpu().item()
+                train_pbar.set_postfix(loss=loss)
+
+            loss_dict['train loss'] = loss
 
             test_pbar = tqdm(self.test_loader, disable=not accelerator.is_local_main_process)
             test_pbar.set_description(f'Test epoch {e}')
@@ -88,11 +97,15 @@ class Trainer:
                     pred = self.model(x)
                     loss = self.loss(pred, y)
 
-                    test_pbar.set_postfix(loss=loss.cpu().item())
+                    loss = loss.cpu().item()
+                    test_pbar.set_postfix(loss=loss)
+
 
                     logit = torch.argmax(pred, dim=-1)
                     label = torch.argmax(y, dim=-1)
                     self.metric.add_batch(references=label, predictions=logit)
+
+            loss_dict['test loss'] = loss
 
             acc = self.metric.compute()
             accelerator.print(acc)
@@ -100,7 +113,14 @@ class Trainer:
             self.saver.save_latest_model(self.model)
             self.saver.save_best_model(self.model, acc)
 
-            accelerator.log(acc, step=e)
+            trace_log = dict(
+                **acc,
+                learning_rate=self.optimizer.__dict__['optimizer'].__dict__['param_groups'][0]['lr'],
+                **loss_dict
+            )
+            accelerator.log(trace_log, step=e)
+
+            self.scheduler.step()
         accelerator.end_training()
 
 
