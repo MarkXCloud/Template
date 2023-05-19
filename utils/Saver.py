@@ -17,8 +17,9 @@ class Saver:
         """
         # create save dir
         save_dir = './runs/' + time.strftime('%Y%m%d_%H_%M_%S', time.gmtime(time.time()))
-        os.mkdir(save_dir)
-        self._save_dir = save_dir
+        if accelerator.is_local_main_process:
+            os.mkdir(save_dir)
+        self.save_dir = save_dir
         self._save_step = save_step
         # count for epochs, when the count meets save_step, it saves the latest model
         self._cnt = 0
@@ -31,9 +32,9 @@ class Saver:
         if self._cnt == self._save_step:
             accelerator.wait_for_everyone()
             unwrapped_model = accelerator.unwrap_model(model)
-            accelerator.save(unwrapped_model.state_dict(), f=os.path.join(self._save_dir, "latest.pt"))
+            accelerator.save(unwrapped_model.state_dict(), f=os.path.join(self.save_dir, "latest.pt"))
             self._cnt = 0
-            accelerator.print("Save latest model!")
+            accelerator.print(f"Save latest model under {self.save_dir}")
         else:
             self._cnt += 1
 
@@ -43,6 +44,6 @@ class Saver:
         if condition:
             accelerator.wait_for_everyone()
             unwrapped_model = accelerator.unwrap_model(model)
-            accelerator.save(unwrapped_model.state_dict(), f=os.path.join(self._save_dir, "best.pt"))
+            accelerator.save(unwrapped_model.state_dict(), f=os.path.join(self.save_dir, "best.pt"))
             self._metric = metric
-            accelerator.print("Save new best model!")
+            accelerator.print(f"Save new best model under {self.save_dir}")

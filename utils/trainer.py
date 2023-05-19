@@ -39,10 +39,11 @@ class Trainer:
             loss=self.loss.__class__.__name__,
             optimizer=self.optimizer.__class__.__name__,
             scheduler=self.scheduler.__class__.__name__,
-            learning_rate=self.optimizer.__dict__['param_groups'][0]['lr'],
+            init_learning_rate=self.optimizer.__dict__['param_groups'][0]['lr'],
             weight_decay=self.optimizer.__dict__['param_groups'][0]['weight_decay'],
             dataset=self.train_loader.__dict__['dataset'],
-            batch_size=self.train_loader.__dict__['batch_size']
+            batch_size=self.train_loader.__dict__['batch_size'],
+            save_dir=self.saver.save_dir
         )
 
         accelerator.init_trackers(module_loader.log_name, config=tracker_config)
@@ -107,14 +108,14 @@ class Trainer:
 
             loss_dict['test loss'] = loss
 
-            acc = self.metric.compute()
-            accelerator.print(acc)
+            metrics = self.metric.compute()
+            accelerator.print(','.join([f'{k} = {v}' for k,v in metrics.items()]))
 
             self.saver.save_latest_model(self.model)
-            self.saver.save_best_model(self.model, acc)
+            self.saver.save_best_model(self.model, metrics)
 
             trace_log = dict(
-                **acc,
+                **metrics,
                 learning_rate=self.optimizer.__dict__['optimizer'].__dict__['param_groups'][0]['lr'],
                 **loss_dict
             )
