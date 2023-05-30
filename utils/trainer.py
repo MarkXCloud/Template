@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import DataLoader
 import importlib
 from accelerate import Accelerator
-from accelerate.utils import set_seed
+from accelerate.utils import set_seed,reduce
 from torchsummary import summary
 
 accelerator = Accelerator(log_with=['wandb'], project_dir='./runs/')
@@ -84,6 +84,7 @@ class Trainer:
                 accelerator.backward(loss)
                 self.optimizer.step()
 
+                loss = reduce(loss)  # reduce loss among devices
                 loss = loss.cpu().item()
                 train_pbar.set_postfix(loss=loss)
 
@@ -98,6 +99,7 @@ class Trainer:
                     pred = self.model(x)
                     loss = self.loss(pred, y)
 
+                    loss = reduce(loss) # reduce loss among devices
                     loss = loss.cpu().item()
                     test_pbar.set_postfix(loss=loss)
 
