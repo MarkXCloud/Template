@@ -7,22 +7,30 @@ import torchvision
 from torchvision import transforms
 import evaluate
 from utils import Saver
+from utils.Paradigm import ImageClassificationParadigm
 
+
+
+# Task definition
+paradigm = ImageClassificationParadigm()
 log_name = "example_project"
+epoch = 1
 
-num_classes = 10
-model = timm.create_model(model_name='resnet26',
-                          pretrained=False,
-                          num_classes=num_classes)
-loss = nn.MSELoss()
-
+# dataset definition
+# input shape
 img_size = (3, 224, 224)
-batch_size=64
+batch_size = 24
+input_size = (batch_size,) + img_size
+
+# class info
+num_classes = 10
 classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+
+# dataset & dataloader
 # target_transforms is for the transform on label, we first transform it
 # into LongTensor, then use one-hot encoding, at that time the tensor has shape (1, 10),
 # finally we eliminate the first dim and it turns into shape (10,)
-train_set = torchvision.datasets.CIFAR10(root='/data',
+train_set = torchvision.datasets.CIFAR10(root='/data/wangzili',
                                          train=True,
                                          transform=transforms.Compose([
                                              transforms.Resize(size=img_size[-1]),
@@ -35,35 +43,38 @@ train_set = torchvision.datasets.CIFAR10(root='/data',
                                              lambda x: x.squeeze(0),
                                              lambda x: x.to(torch.float32)]),
                                          )
-train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
 
-test_set = torchvision.datasets.CIFAR10(root='/data',
-                                         train=False,
-                                         transform=transforms.Compose([
-                                             transforms.Resize(size=img_size[-1]),
-                                             transforms.ToTensor(),
-                                             transforms.Normalize(mean=(0.485, 0.456, 0.406),
-                                                                  std=(0.229, 0.224, 0.225))]),
-                                         target_transform=transforms.Compose([
-                                             lambda x: torch.LongTensor([x]),
-                                             lambda x: F.one_hot(x, num_classes),
-                                             lambda x: x.squeeze(0),
-                                             lambda x: x.to(torch.float32)]),
-                                         )
-test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
+train_loader = DataLoader(train_set, batch_size=batch_size, num_workers=4)
 
-optimizer = torch.optim.AdamW(params=model.parameters(),lr=1e-3,weight_decay=1e-5)
-scheduler = torch.optim.lr_scheduler.SequentialLR(
-    optimizer=optimizer,
-    schedulers=[torch.optim.lr_scheduler.LinearLR(optimizer,start_factor=0.01,total_iters=5),
-        torch.optim.lr_scheduler.MultiStepLR(optimizer,milestones=[7,9],gamma=0.1)],
-    milestones=[5]
+test_set = torchvision.datasets.CIFAR10(root='/data/wangzili',
+                                        train=False,
+                                        transform=transforms.Compose([
+                                            transforms.Resize(size=img_size[-1]),
+                                            transforms.ToTensor(),
+                                            transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                                                 std=(0.229, 0.224, 0.225))]),
+                                        target_transform=lambda x: torch.tensor(x),
+                                        )
+
+test_loader = DataLoader(test_set, batch_size=batch_size, num_workers=4)
+
+# model and other configuration
+model = timm.create_model(model_name='resnet26',
+                          pretrained=False,
+                          num_classes=num_classes)
+model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+
+loss = nn.CrossEntropyLoss()
+
+optimizer = torch.optim.AdamW(params=model.parameters(), lr=1e-3, weight_decay=1e-5)
+scheduler = torch.optim.lr_scheduler.ChainedScheduler(
+    schedulers=[torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01, total_iters=2),
+                torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[3], gamma=0.1)]
 )
 
-epoch = 3
-
-
+# test configuration
 metric_tokens = ["accuracy"]
 metric = evaluate.combine(metric_tokens)
 
-saver = Saver(save_step=1,higher_is_better=True,monitor="accuracy")
+# saver
+saver = Saver(save_interval=1, higher_is_better=True, monitor="accuracy")

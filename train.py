@@ -1,12 +1,9 @@
-from utils import parse_args, Trainer
+from utils import parse_args,launch
 
 
 def main():
     cfg = parse_args()
-    trainer = Trainer(cfg)
-    trainer.init_seeds(cfg.seed)
-    trainer.show_model_info()
-    trainer.train()
+    launch(cfg)
 
 
 if __name__ == '__main__':
