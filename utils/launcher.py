@@ -3,7 +3,9 @@ import torch
 from accelerate import Accelerator
 from accelerate.utils import set_seed, reduce
 from tqdm import tqdm
-from os import mkdir,path as osp
+import sys
+from os import mkdir,makedirs, path as osp
+import shutil
 import time
 
 accelerator = Accelerator(log_with=['wandb'], project_dir='./runs/')
@@ -25,6 +27,7 @@ def launch(config):
             loss_dict = paradigm.train(model, x, y, loss)
             accelerator.backward(loss_dict['loss'])
             optimizer.step()
+            scheduler.step()
 
         train_loss_dict = reduce(loss_dict)  # reduce the loss among all devices
         accelerator.print(','.join([f'{k} = {v:.5f}' for k, v in train_loss_dict.items()]))
@@ -49,7 +52,6 @@ def launch(config):
         )
         accelerator.log(trace_log, step=e)
 
-        scheduler.step()
     accelerator.end_training()
 
 
@@ -104,8 +106,7 @@ def prepare_everything(config):
 
     torch.backends.cudnn.benchmark = True
 
-    device = accelerator.device
-    model.to(device)
+    model.to(accelerator.device)
 
     things = [model, optimizer, scheduler, train_loader, test_loader]
     model, optimizer, scheduler, train_loader, test_loader \
@@ -127,13 +128,19 @@ class Saver:
         :param monitor: the metric that we want to observe for best model, e.g., accuracy
         """
         # create save dir
-        save_dir = './runs/' + time.strftime('%Y%m%d_%H_%M_%S', time.gmtime(time.time()))
+        back_frame = sys._getframe().f_back
+        back_filename =osp.basename(back_frame.f_code.co_filename)# XXX_cfg.py
+
+        save_dir = osp.join('./runs/',back_filename[:-3], time.strftime('%Y%m%d_%H_%M_%S', time.gmtime(time.time())))
+        cfg_file = osp.join('configs', back_filename)
         if accelerator.is_local_main_process:
-            mkdir(save_dir)
+            makedirs(save_dir)
+            shutil.copy(src=cfg_file,dst=save_dir)
+
         self.save_dir = save_dir
         self._save_interval = save_interval
         # count for epochs, when the count meets save_interval, it saves the latest model
-        self._cnt = 0
+        self._cnt = 1
 
         self.hib = higher_is_better
         self._metric = -1 if higher_is_better else 65535
@@ -141,10 +148,8 @@ class Saver:
 
     def save_latest_model(self, model):
         if self._cnt == self._save_interval:
-            accelerator.wait_for_everyone()
-            unwrapped_model = accelerator.unwrap_model(model)
-            accelerator.save(unwrapped_model.state_dict(), f=osp.join(self.save_dir, "latest.pt"))
-            self._cnt = 0
+            accelerator.save(accelerator.get_state_dict(model), f=osp.join(self.save_dir, "latest.pt"))
+            self._cnt = 1
             accelerator.print(f"Save latest model under {self.save_dir}")
         else:
             self._cnt += 1
@@ -153,8 +158,6 @@ class Saver:
         metric = metric[self.monitor]
         condition = metric > self._metric if self.hib else metric < self._metric
         if condition:
-            accelerator.wait_for_everyone()
-            unwrapped_model = accelerator.unwrap_model(model)
-            accelerator.save(unwrapped_model.state_dict(), f=osp.join(self.save_dir, "best.pt"))
+            accelerator.save(accelerator.get_state_dict(model), f=osp.join(self.save_dir, "best.pt"))
             self._metric = metric
             accelerator.print(f"Save new best model under {self.save_dir}")

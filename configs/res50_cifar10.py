@@ -11,12 +11,10 @@ import evaluate
 from utils import Saver
 from utils.Paradigm import ImageClassificationParadigm
 
-
-
 # Task definition
 paradigm = ImageClassificationParadigm()
 log_name = "example_project"
-epoch = 1
+epoch = 24
 
 # dataset definition
 # input shape
@@ -41,12 +39,10 @@ train_set = CIFAR10(root='/data/wangzili',
                         ToTensorV2()]),
                     target_transform=T.Compose([
                         lambda x: torch.LongTensor([x]),
-                        lambda x: F.one_hot(x, num_classes),
-                        lambda x: x.squeeze(0),
-                        lambda x: x.to(torch.float32)]),
+                        lambda x: F.one_hot(x, num_classes).squeeze(0).to(torch.float32)]),
                     )
 
-train_loader = DataLoader(train_set, batch_size=batch_size, num_workers=4)
+train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
 
 test_set = CIFAR10(root='/data/wangzili',
                    train=False,
@@ -58,19 +54,23 @@ test_set = CIFAR10(root='/data/wangzili',
                    target_transform=lambda x: torch.tensor(x),
                    )
 
-test_loader = DataLoader(test_set, batch_size=batch_size, num_workers=4)
+test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
 
-# model and other configuration
+# model related configuration
 model = timm.create_model(model_name='resnet50',
                           pretrained=False,
                           num_classes=num_classes)
 
 loss = nn.CrossEntropyLoss()
 
-optimizer = torch.optim.AdamW(params=model.parameters(), lr=1e-3, weight_decay=1e-5)
+optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-3)
+# Note: in accelerate, the AcceleratedScheduler steps along with num_process
+num_iters_per_epoch = len(train_loader)
 scheduler = torch.optim.lr_scheduler.ChainedScheduler(
-    schedulers=[torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01, total_iters=2),
-                torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[3], gamma=0.1)]
+    schedulers=[
+        torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01, total_iters=4 * num_iters_per_epoch),
+        torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[16 * num_iters_per_epoch,
+                                                                    20 * num_iters_per_epoch], gamma=0.5)],
 )
 
 # test configuration
