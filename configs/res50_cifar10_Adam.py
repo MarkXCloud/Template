@@ -59,10 +59,9 @@ test_set = torchvision.datasets.CIFAR10(root='/data/wangzili',
 test_loader = DataLoader(test_set, batch_size=batch_size, num_workers=4)
 
 # model and other configuration
-model = timm.create_model(model_name='resnet26',
+model = timm.create_model(model_name='resnet50',
                           pretrained=False,
                           num_classes=num_classes)
-model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
 loss = nn.CrossEntropyLoss()
 

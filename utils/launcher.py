@@ -1,4 +1,4 @@
-import importlib
+import importlib.util
 import torch
 from accelerate import Accelerator
 from accelerate.utils import set_seed, reduce
@@ -24,8 +24,8 @@ def launch(config):
             accelerator.backward(loss_dict['loss'])
             optimizer.step()
 
-        train_loss_dict = reduce(loss_dict)
-        accelerator.print(','.join([f'{k} = {v}' for k, v in loss_dict.items()]))
+        train_loss_dict = reduce(loss_dict)# reduce the loss among all devices
+        accelerator.print(','.join([f'{k} = {v:.6f}' for k, v in loss_dict.items()]))
 
         test_pbar = tqdm(test_loader, desc=f'Test epoch {e}', disable=not accelerator.is_local_main_process)
 
@@ -35,7 +35,7 @@ def launch(config):
             metric.add_batch(references=label, predictions=pred)
 
         metrics = metric.compute()
-        accelerator.print(','.join([f'{k} = {v}' for k, v in metrics.items()]))
+        accelerator.print(','.join([f'{k} = {v:.6f}' for k, v in metrics.items()]))
 
         saver.save_latest_model(model)
         saver.save_best_model(model, metrics)
@@ -50,25 +50,28 @@ def launch(config):
         scheduler.step()
     accelerator.end_training()
 
+def load_module(script_path):
+    spec = importlib.util.spec_from_file_location("module_script", script_path)
+    module_script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module_script)
+
+    return module_script
 
 def prepare_everything(config):
 
     set_seed(config.seed)
 
-    pyfile = config.cfg
-    assert pyfile.endswith('.py'), "cfg file should be a .py file"
-    module = pyfile.replace('/', '.')[:-3]
-    module_loader = importlib.import_module(module)
+    module_loader = load_module(config.cfg)
 
     from utils.Paradigm import BaseParadigm
     from torch.nn import Module
     from torch.utils.data import DataLoader
     from torch.optim import Optimizer
-
+    #load everything from the module
     paradigm: BaseParadigm = module_loader.paradigm
     model: Module = module_loader.model
     loss: Module = module_loader.loss
-    input_size: tuple = module_loader.input_size
+    batch_size: int = module_loader.batch_size
     train_loader: DataLoader = module_loader.train_loader
     test_loader: DataLoader = module_loader.test_loader
     optimizer: Optimizer = module_loader.optimizer
@@ -87,8 +90,8 @@ def prepare_everything(config):
         scheduler=scheduler.__class__.__name__,
         init_learning_rate=optimizer.__dict__['param_groups'][0]['lr'],
         weight_decay=optimizer.__dict__['param_groups'][0]['weight_decay'],
-        dataset=train_loader.__class__.__name__,
-        batch_size=input_size[0],
+        dataset=train_loader.__dict__['dataset'],
+        batch_size=batch_size,
         save_dir=saver.save_dir
     )
 
