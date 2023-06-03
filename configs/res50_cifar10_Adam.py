@@ -3,8 +3,10 @@ import torch.nn as nn
 import timm
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-import torchvision
-from torchvision import transforms
+import torchvision.transforms as T
+from data.dataset import CIFAR10
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 import evaluate
 from utils import Saver
 from utils.Paradigm import ImageClassificationParadigm
@@ -30,31 +32,31 @@ classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship'
 # target_transforms is for the transform on label, we first transform it
 # into LongTensor, then use one-hot encoding, at that time the tensor has shape (1, 10),
 # finally we eliminate the first dim and it turns into shape (10,)
-train_set = torchvision.datasets.CIFAR10(root='/data/wangzili',
-                                         train=True,
-                                         transform=transforms.Compose([
-                                             transforms.Resize(size=img_size[-1]),
-                                             transforms.ToTensor(),
-                                             transforms.Normalize(mean=(0.485, 0.456, 0.406),
-                                                                  std=(0.229, 0.224, 0.225))]),
-                                         target_transform=torchvision.transforms.Compose([
-                                             lambda x: torch.LongTensor([x]),
-                                             lambda x: F.one_hot(x, num_classes),
-                                             lambda x: x.squeeze(0),
-                                             lambda x: x.to(torch.float32)]),
-                                         )
+train_set = CIFAR10(root='/data/wangzili',
+                    train=True,
+                    transform=A.Compose([
+                        A.Resize(img_size[-2], img_size[-1]),
+                        A.Normalize(mean=(0.485, 0.456, 0.406),
+                                    std=(0.229, 0.224, 0.225)),
+                        ToTensorV2()]),
+                    target_transform=T.Compose([
+                        lambda x: torch.LongTensor([x]),
+                        lambda x: F.one_hot(x, num_classes),
+                        lambda x: x.squeeze(0),
+                        lambda x: x.to(torch.float32)]),
+                    )
 
 train_loader = DataLoader(train_set, batch_size=batch_size, num_workers=4)
 
-test_set = torchvision.datasets.CIFAR10(root='/data/wangzili',
-                                        train=False,
-                                        transform=transforms.Compose([
-                                            transforms.Resize(size=img_size[-1]),
-                                            transforms.ToTensor(),
-                                            transforms.Normalize(mean=(0.485, 0.456, 0.406),
-                                                                 std=(0.229, 0.224, 0.225))]),
-                                        target_transform=lambda x: torch.tensor(x),
-                                        )
+test_set = CIFAR10(root='/data/wangzili',
+                   train=False,
+                   transform=A.Compose([
+                       A.Resize(img_size[-2], img_size[-1]),
+                       A.Normalize(mean=(0.485, 0.456, 0.406),
+                                   std=(0.229, 0.224, 0.225)),
+                       ToTensorV2()]),
+                   target_transform=lambda x: torch.tensor(x),
+                   )
 
 test_loader = DataLoader(test_set, batch_size=batch_size, num_workers=4)
 
