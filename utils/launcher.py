@@ -27,7 +27,7 @@ def launch(config):
             optimizer.step()
 
         train_loss_dict = reduce(loss_dict)  # reduce the loss among all devices
-        accelerator.print(','.join([f'{k} = {v:.6f}' for k, v in loss_dict.items()]))
+        accelerator.print(','.join([f'{k} = {v:.5f}' for k, v in train_loss_dict.items()]))
 
         test_pbar = tqdm(test_loader, desc=f'Test epoch {e}', disable=not accelerator.is_local_main_process)
 
@@ -37,7 +37,7 @@ def launch(config):
             metric.add_batch(references=label, predictions=pred)
 
         metrics = metric.compute()
-        accelerator.print(','.join([f'{k} = {v:.6f}' for k, v in metrics.items()]))
+        accelerator.print(','.join([f'{k} = {v:.5f}' for k, v in metrics.items()]))
 
         saver.save_latest_model(model)
         saver.save_best_model(model, metrics)
@@ -45,7 +45,7 @@ def launch(config):
         trace_log = dict(
             **metrics,
             **train_loss_dict,
-            learning_rate=optimizer.__dict__['optimizer'].__dict__['param_groups'][0]['lr'],
+            learning_rate=optimizer.optimizer.param_groups[0]['lr'],
         )
         accelerator.log(trace_log, step=e)
 
