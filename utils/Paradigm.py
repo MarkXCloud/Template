@@ -9,14 +9,14 @@ class Paradigm:
     train perform the whole pipeline of training from pred=model(x) to loss=loss_fn(pred,y)
     :return: the loss dict which contains the value of 'loss' and other losses if existed.
 
-    test perform the whole pipeline of inference from pred=model(x) to results=convert_to_label(pred).
+    inference perform the whole pipeline of inference from pred=model(x) to results=convert_to_label(pred).
     :return: the prediction of model in the form of corresponding label, e.g., one-hot vector -> class index
     Note: most of the time, we should use @torch.no_grad() decorator on inference function
     """
 
-    def __init__(self, train: Callable, test: Callable):
+    def __init__(self, train: Callable, inference: Callable):
         self.train = train
-        self.test = test
+        self.inference = inference
 
 
 def image_classification_train(model, x, y, loss_fn):
