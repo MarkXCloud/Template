@@ -3,8 +3,8 @@ import torch.nn as nn
 import timm
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-import torchvision.transforms as T
 from data.dataset import CIFAR10
+import torchvision.transforms as T
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import evaluate
@@ -12,7 +12,7 @@ from utils import Saver
 from utils.Paradigm import ImageClassificationParadigm
 
 # Task definition
-paradigm = ImageClassificationParadigm()
+paradigm = ImageClassificationParadigm
 log_name = "example_project"
 epoch = 24
 

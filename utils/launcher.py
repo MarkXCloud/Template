@@ -4,7 +4,7 @@ from accelerate import Accelerator
 from accelerate.utils import set_seed, reduce
 from tqdm import tqdm
 import sys
-from os import mkdir,makedirs, path as osp
+from os import makedirs, path as osp
 import shutil
 import time
 
@@ -15,7 +15,7 @@ def launch(config):
     paradigm, model, loss, train_loader, test_loader, optimizer, scheduler, epoch, metric, saver = \
         prepare_everything(config)
 
-    loss_dict = {}
+    loss_dict = dict()
 
     # start training
     for e in range(epoch):
@@ -68,23 +68,19 @@ def prepare_everything(config):
 
     module_loader = load_module(config.cfg)
 
-    from utils.Paradigm import BaseParadigm
-    from torch.nn import Module
-    from torch.utils.data import DataLoader
-    from torch.optim import Optimizer
     # load everything from the module
-    paradigm: BaseParadigm = module_loader.paradigm
-    model: Module = module_loader.model
-    loss: Module = module_loader.loss
-    batch_size: int = module_loader.batch_size
-    train_loader: DataLoader = module_loader.train_loader
-    test_loader: DataLoader = module_loader.test_loader
-    optimizer: Optimizer = module_loader.optimizer
+    paradigm = module_loader.paradigm
+    model = module_loader.model
+    loss = module_loader.loss
+    batch_size = module_loader.batch_size
+    train_loader = module_loader.train_loader
+    test_loader = module_loader.test_loader
+    optimizer = module_loader.optimizer
     scheduler = module_loader.scheduler
-    epoch: int = module_loader.epoch
+    epoch = module_loader.epoch
     metric = module_loader.metric
     saver: Saver = module_loader.saver
-    log_name: str = module_loader.log_name
+    log_name = module_loader.log_name
 
     # basic info for the wandb log
     tracker_config = dict(
@@ -129,13 +125,13 @@ class Saver:
         """
         # create save dir
         back_frame = sys._getframe().f_back
-        back_filename =osp.basename(back_frame.f_code.co_filename)# XXX_cfg.py
+        back_filename = osp.basename(back_frame.f_code.co_filename)  # XXX_cfg.py
 
-        save_dir = osp.join('./runs/',back_filename[:-3], time.strftime('%Y%m%d_%H_%M_%S', time.gmtime(time.time())))
+        save_dir = osp.join('./runs/', back_filename[:-3], time.strftime('%Y%m%d_%H_%M_%S', time.gmtime(time.time())))
         cfg_file = osp.join('configs', back_filename)
         if accelerator.is_local_main_process:
             makedirs(save_dir)
-            shutil.copy(src=cfg_file,dst=save_dir)
+            shutil.copy(src=cfg_file, dst=save_dir)
 
         self.save_dir = save_dir
         self._save_interval = save_interval
