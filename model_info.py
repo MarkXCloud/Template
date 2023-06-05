@@ -1,6 +1,6 @@
 import torch
 from torchinfo import summary
-from utils import parse_args,load_module
+from template import parse_args,load_module
 from ptflops import get_model_complexity_info
 
 

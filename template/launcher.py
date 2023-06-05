@@ -3,7 +3,6 @@ import torch
 from accelerate import Accelerator
 from accelerate.utils import set_seed, reduce
 from tqdm import tqdm
-import sys
 from os import makedirs, path as osp
 import shutil
 import time
@@ -11,11 +10,11 @@ import time
 accelerator = Accelerator(log_with=['wandb'], project_dir='./runs/')
 
 
-def launch(config):
+def launch(args):
     paradigm, model, loss, train_loader, test_loader, optimizer, scheduler, epoch, metric, saver = \
-        prepare_everything(config)
+        prepare_everything(args)
 
-    loss_dict = dict()
+    loss_dict = {}
 
     # start training
     for e in range(epoch):
@@ -63,10 +62,10 @@ def load_module(script_path):
     return module_script
 
 
-def prepare_everything(config):
-    set_seed(config.seed)
+def prepare_everything(args):
+    set_seed(args.seed)
 
-    module_loader = load_module(config.cfg)
+    module_loader = load_module(args.config)
 
     # load everything from the module
     paradigm = module_loader.paradigm
@@ -116,7 +115,7 @@ class Saver:
     Saver acts as a scheduler to save the latest model and the best model.
     """
 
-    def __init__(self, save_interval: int, higher_is_better: bool, monitor: str):
+    def __init__(self, save_interval: int, higher_is_better: bool, monitor: str, root:str='./runs/'):
         """
         :param save_interval: when we want to save the latest model, it saves it per $save_step$ epochs.
         :param higher_is_better: when we want to save the best model, we should point out what is 'best', higher_is_better means\
@@ -124,14 +123,13 @@ class Saver:
         :param monitor: the metric that we want to observe for best model, e.g., accuracy
         """
         # create save dir
-        back_frame = sys._getframe().f_back
-        back_filename = osp.basename(back_frame.f_code.co_filename)  # XXX_cfg.py
+        import inspect
+        back_filename = inspect.currentframe().f_back.f_code.co_filename  # YOUR/PATH/TO/CONFIG/XXX_cfg.py
 
-        save_dir = osp.join('./runs/', back_filename[:-3], time.strftime('%Y%m%d_%H_%M_%S', time.gmtime(time.time())))
-        cfg_file = osp.join('configs', back_filename)
+        save_dir = osp.join(root, osp.basename(back_filename)[:-3], time.strftime('%Y%m%d_%H_%M_%S', time.localtime(time.time())))
         if accelerator.is_local_main_process:
             makedirs(save_dir)
-            shutil.copy(src=cfg_file, dst=save_dir)
+            shutil.copy(src=back_filename, dst=save_dir)
 
         self.save_dir = save_dir
         self._save_interval = save_interval

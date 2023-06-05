@@ -1,5 +1,5 @@
 import optuna
-from utils import parse_args
+from template import parse_args
 import importlib
 import torch
 from torch.utils.data import DataLoader

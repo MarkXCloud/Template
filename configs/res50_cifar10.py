@@ -8,8 +8,8 @@ import torchvision.transforms as T
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import evaluate
-from utils import Saver
-from utils.Paradigm import ImageClassificationParadigm
+from template import Saver
+from template.Paradigm import ImageClassificationParadigm
 
 # Task definition
 paradigm = ImageClassificationParadigm

@@ -1,8 +1,8 @@
-from utils import parse_args, launch
+from template import parse_args, launch
 
 def main():
-    cfg = parse_args()
-    launch(cfg)
+    args = parse_args()
+    launch(args)
 
 if __name__ == '__main__':
     main()
