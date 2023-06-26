@@ -3,16 +3,16 @@ import torch.nn as nn
 import timm
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from data.dataset import CIFAR10
+from datasets import CIFAR10
+from modelings.losses import LossCls
+from optim.scheduler import WarmUpMultiStep
 import torchvision.transforms as T
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-import evaluate
+from evaluation import Accuracy
 from template import Saver
-from template.Paradigm import ImageClassificationParadigm
 
 # Task definition
-paradigm = ImageClassificationParadigm
 log_name = "example_project"
 epoch = 24
 
@@ -56,26 +56,25 @@ test_set = CIFAR10(root='/data/wangzili',
 
 test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
 
-# model related configuration
+# modeling related configuration
 model = timm.create_model(model_name='resnet50',
                           pretrained=False,
                           num_classes=num_classes)
 
-loss = nn.CrossEntropyLoss()
-
-optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-3)
+loss_fn = LossCls(loss_fn=nn.CrossEntropyLoss())
+lr=1e-3
+optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
 # Note: in accelerate, the AcceleratedScheduler steps along with num_process
 num_iters_per_epoch = len(train_loader)
-scheduler = torch.optim.lr_scheduler.ChainedScheduler(
-    schedulers=[
-        torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01, total_iters=4 * num_iters_per_epoch),
-        torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[16 * num_iters_per_epoch,
-                                                                    20 * num_iters_per_epoch], gamma=0.5)],
-)
+scheduler = WarmUpMultiStep(optimizer=optimizer,
+                            start_factor=0.01,
+                            warmup_iter=4*num_iters_per_epoch,
+                            step_milestones=[16*num_iters_per_epoch,
+                                             20*num_iters_per_epoch],
+                            gamma=0.5)
 
 # test configuration
-metric_tokens = ["accuracy"]
-metric = evaluate.combine(metric_tokens)
+metric = Accuracy()
 
 # saver
 saver = Saver(save_interval=1, higher_is_better=True, monitor="accuracy")

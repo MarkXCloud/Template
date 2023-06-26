@@ -12,7 +12,7 @@ It is very **tedious** to write a deep learning codebase with Trainer, Logger or
 3. Config file in `.py`, where you can import everything in raw python code, which is much more readable and rewritable than other types of config. Then you can just assign it in terminal.  This function is performed using `importlib`.
 4. Distributed training, supported by [accelerate](https://huggingface.co/docs/accelerate/index). With some useful features of accelerate we can easily launch distributed training with small changes of code, while avoid some tedious changes including `sampler.set_epoch()` (used to set random seed every epoch in ddp), `model_saved=ddp_model.module` (because primitive model is wrapped for ddp).
 5. [WandB](https://wandb.ai/site) for logging the info of everything at first, and tracing the loss or other metrics curve.
-6. Evaluation supported by [evaluate](https://huggingface.co/docs/evaluate/index). Initiate the evaluator in config, call it in test loop to record predictions, and finally compute all the metrics. If you want to use a custom metric you should rewrite `add_batch()` method and `compute()`method.
+6. Evaluation enlightened by [evaluate](https://huggingface.co/docs/evaluate/index), where we record the temp results and calculate the final metric at the end of one epoch. Initiate the evaluator in config, call it in test loop to record predictions, and finally compute all the metrics. If you want to use a custom metric you should rewrite `add_batch()` method and `compute()`method.
 7. Saver to save the latest model with custom interval and the best model with specific metric.
 8. Model #params and #MACS supported by [torchinfo](https://github.com/TylerYep/torchinfo) and [ptflops](https://github.com/LukasHedegaard/ptflops).
 9. All the codes are very simple and neat to make you easy to change everywhere for custom function. If you want to define other modules like loss or scheduler, you can just create a python file, write it and import it in you config.
@@ -24,7 +24,6 @@ It is very **tedious** to write a deep learning codebase with Trainer, Logger or
 - timm
 - tqdm
 - accelerate
-- evaluate
 - albumentations
 - torchinfo
 - ptflops

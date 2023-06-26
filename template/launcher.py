@@ -8,7 +8,7 @@ accelerator = Accelerator(log_with=['wandb'])
 
 
 def launch(args):
-    paradigm, model, loss, train_loader, test_loader, optimizer, scheduler, epoch, metric, saver = \
+    model, loss_fn, train_loader, test_loader, optimizer, scheduler, epoch, metric, saver = \
         prepare_everything(args)
 
     loss_dict = {}
@@ -18,9 +18,11 @@ def launch(args):
         train_pbar = tqdm(train_loader, desc=f'Train epoch {e}', disable=not accelerator.is_local_main_process)
 
         model.train()
+        loss_fn.train()
         for x, y in train_pbar:
+            outputs = model(x)
+            loss_dict = loss_fn(outputs,y)
             optimizer.zero_grad()
-            loss_dict = paradigm.train(model, x, y, loss)
             accelerator.backward(loss_dict['loss'])
             optimizer.step()
             scheduler.step()
@@ -31,9 +33,12 @@ def launch(args):
         test_pbar = tqdm(test_loader, desc=f'Test epoch {e}', disable=not accelerator.is_local_main_process)
 
         model.eval()
-        for x, label in test_pbar:
-            pred = paradigm.inference(model, x)
-            metric.add_batch(references=label, predictions=pred)
+        loss_fn.eval()
+        with torch.no_grad():
+            for x, label in test_pbar:
+                outputs = model(x)
+                pred = loss_fn.post_process(outputs)
+                metric.add_batch(pred=pred,label=label)
 
         metrics = metric.compute()
         accelerator.print(','.join([f'{k} = {v:.5f}' for k, v in metrics.items()]))
@@ -52,6 +57,11 @@ def launch(args):
 
 
 def load_module(script_path):
+    """
+    This func is equal to 'import XXX' where XXX is the path to the .py file
+    :param script_path: path to the .py config file
+    :return: a module loader
+    """
     import importlib.util
     spec = importlib.util.spec_from_file_location("module_script", script_path)
     module_script = importlib.util.module_from_spec(spec)
@@ -61,39 +71,49 @@ def load_module(script_path):
 
 
 def prepare_everything(args):
+    """
+    Load everything from config file
+    :return: model, loss_fn, train_loader, test_loader, optimizer, scheduler, epoch, metric, saver
+    """
+    # accelerate can seed all
     set_seed(args.seed)
 
     module_loader = load_module(args.config)
 
     # load everything from the module
-    paradigm = module_loader.paradigm
     model = module_loader.model
-    loss = module_loader.loss
-    batch_size = module_loader.batch_size
+    loss_fn = module_loader.loss_fn
     train_loader = module_loader.train_loader
     test_loader = module_loader.test_loader
     optimizer = module_loader.optimizer
     scheduler = module_loader.scheduler
     epoch = module_loader.epoch
     metric = module_loader.metric
-    saver: Saver = module_loader.saver
+    saver = module_loader.saver
     log_name = module_loader.log_name
 
     # basic info for the wandb log
     tracker_config = dict(
         epoch=epoch,
         model=model.default_cfg['architecture'],
-        loss=loss.__class__.__name__,
+        loss=loss_fn.name,
         optimizer=optimizer.__class__.__name__,
         scheduler=scheduler.__class__.__name__,
-        init_learning_rate=optimizer.param_groups[0]['lr'],
+        learning_rate=module_loader.lr,
         weight_decay=optimizer.param_groups[0]['weight_decay'],
         dataset=train_loader.dataset,
-        batch_size=batch_size,
+        batch_size=module_loader.batch_size,
         save_dir=saver.save_dir
     )
 
     accelerator.init_trackers(log_name, config=tracker_config)
+    # upload and save current config file
+    wandb_tracker = accelerator.get_tracker("wandb",unwrap=True)
+    if accelerator.is_local_main_process:
+        wandb_tracker.save(args.config)
+        import shutil
+        makedirs(saver.save_dir)
+        shutil.copy(src=args.config, dst=saver.save_dir)
 
     torch.cuda.empty_cache()
 
@@ -102,12 +122,12 @@ def prepare_everything(args):
     model, optimizer, scheduler, train_loader, test_loader \
         = accelerator.prepare(model, optimizer, scheduler, train_loader, test_loader)
 
-    return paradigm, model, loss, train_loader, test_loader, optimizer, scheduler, epoch, metric, saver
+    return model, loss_fn, train_loader, test_loader, optimizer, scheduler, epoch, metric, saver
 
 
 class Saver:
     """
-    Saver acts as a scheduler to save the latest model and the best model.
+    Saver can save the latest model and the best model.
     """
 
     def __init__(self, save_interval: int, higher_is_better: bool, monitor: str, root: str = './runs/'):
@@ -119,18 +139,13 @@ class Saver:
         """
         # create save dir
         import inspect, time
-        back_filename = inspect.currentframe().f_back.f_code.co_filename  # YOUR/PATH/TO/CONFIG/XXX_cfg.py
-
-        save_dir = osp.join(root, osp.basename(back_filename)[:-3],
+        # the code below gets where the Saver is created, that is, the config file you load
+        back_filename = inspect.currentframe().f_back.f_code.co_filename  # YOUR/PATH/TO/CONFIG/XXX.py
+        self.save_dir = osp.join(root, osp.basename(back_filename)[:-3],
                             time.strftime('%Y%m%d_%H_%M_%S', time.localtime(time.time())))
-        if accelerator.is_local_main_process:
-            import shutil
-            makedirs(save_dir)
-            shutil.copy(src=back_filename, dst=save_dir)
 
-        self.save_dir = save_dir
         self._save_interval = save_interval
-        # count for epochs, when the count meets save_interval, it saves the latest model
+        # count for epochs, when the count meets save_interval, it saves the latest modeling
         self._cnt = 1
 
         self.hib = higher_is_better
@@ -141,7 +156,7 @@ class Saver:
         if self._cnt == self._save_interval:
             accelerator.save(accelerator.get_state_dict(model), f=osp.join(self.save_dir, "latest.pt"))
             self._cnt = 1
-            accelerator.print(f"Save latest model under {self.save_dir}")
+            accelerator.print(f"Save latest modeling under {self.save_dir}")
         else:
             self._cnt += 1
 
@@ -151,4 +166,4 @@ class Saver:
         if condition:
             accelerator.save(accelerator.get_state_dict(model), f=osp.join(self.save_dir, "best.pt"))
             self._metric = metric
-            accelerator.print(f"Save new best model under {self.save_dir}")
+            accelerator.print(f"Save new best modeling under {self.save_dir}")
