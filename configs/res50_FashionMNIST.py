@@ -3,28 +3,26 @@ import torch.nn as nn
 import timm
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from datasets import FashionMNIST
-from modelings.losses import LossCls
+from dataset import FashionMNIST
+from modelings.losses import ClsCrossEntropy
 from optim.scheduler import WarmUpMultiStep
 import torchvision.transforms as T
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from evaluation import Accuracy
-from template import Saver
+from accelerate.utils import ProjectConfiguration
+from template.util import SaverConfiguration
 
 # Task definition
-log_name = "example_project"
-epoch = 30
+wandb_log_name = "example_project"
 
 # dataset definition
 # input shape
 img_size = (3, 96, 96)
-batch_size = 24
-input_size = (batch_size,) + img_size
 
 # class info
 num_classes = 10
-classes = ("T-shirt/top", "Trouser", "Pullover", "Dress", "Coat", "Sandal", "Shirt", "Sneaker", "Bag", "Ankle boot")
+classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
 # dataset & dataloader
 # target_transforms is for the transform on label, we first transform it
@@ -40,8 +38,6 @@ train_set = FashionMNIST(root='/data/wangzili',
                              lambda x: F.one_hot(x, num_classes).squeeze(0).to(torch.float32)]),
                          )
 
-train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
-
 test_set = FashionMNIST(root='/data/wangzili',
                         train=False,
                         transform=A.Compose([
@@ -50,30 +46,36 @@ test_set = FashionMNIST(root='/data/wangzili',
                         target_transform=lambda x: torch.tensor(x),
                         )
 
-test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
-
 # modeling related configuration
 model = timm.create_model(model_name='resnet50',
                           in_chans=1,
                           pretrained=False,
                           num_classes=num_classes)
-# modeling = torch.nn.SyncBatchNorm.convert_sync_batchnorm(modeling)
 
-loss_fn = LossCls(loss_fn=nn.CrossEntropyLoss())
+loss_fn = ClsCrossEntropy()
 
-lr=1e-3
-optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
+lr = 1e-3
+optimizer = torch.optim.AdamW(params=model.parameters(), lr=lr)
 # Note: in accelerate, the AcceleratedScheduler steps along with num_process
-num_iters_per_epoch = len(train_loader)
-scheduler = WarmUpMultiStep(optimizer=optimizer,
-                            start_factor=0.01,
-                            warmup_iter=4*num_iters_per_epoch,
-                            step_milestones=[16*num_iters_per_epoch,
-                                             20*num_iters_per_epoch],
-                            gamma=0.5)
+iter_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer=optimizer,
+                                                   start_factor=0.01,
+                                                   total_iters=500
+                                                   )
+epoch_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizer,
+                                                       milestones=[16, 20],
+                                                       gamma=0.5)
 
 # test configuration
-metric = Accuracy()
+metric = Accuracy(topk=(1, 5))
 
 # saver
-saver = Saver(save_interval=5, higher_is_better=True, monitor="accuracy")
+saver_config = SaverConfiguration(
+    save_interval=1,
+    higher_is_better=True,
+    monitor='accuracy@top1',
+    save_dir='./runs'
+)
+project_config = ProjectConfiguration(
+    automatic_checkpoint_naming=True,
+    total_limit=3
+)

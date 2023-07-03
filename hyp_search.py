@@ -34,7 +34,7 @@ class HyperSearcher:
         torch.backends.cudnn.benchmark = True
 
     def hyp_search(self, trial):
-        batch_size = trial.suggest_int('batch_size', 16, 64)
+        batch_size = trial.suggest_int('batch_per_gpu', 16, 64)
         lr = trial.suggest_float('lr', 1e-4, 1e-2, step=0.0001)
         self.optimizer = torch.optim.AdamW(params=self.model.parameters(), lr=lr)
         self.train_loader = DataLoader(self.train_set, batch_size=batch_size, shuffle=True, num_workers=4)

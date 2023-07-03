@@ -1,1 +1,1 @@
-from .loss_cls import *
+from .ClsLoss import *
