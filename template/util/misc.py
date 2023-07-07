@@ -12,12 +12,7 @@ from typing import Optional, List
 import torch
 import torch.distributed as dist
 from torch import Tensor
-import shutil
-from pathlib import Path
-from dataclasses import dataclass
-import datetime
-from accelerate.tracking import on_main_process
-from typing import Union
+
 
 # needed due to empty tensor bug in pytorch and torchvision 0.5
 import torchvision
@@ -308,60 +303,4 @@ def show_device():
     return s
 
 
-@dataclass
-class SaverConfiguration:
-    save_interval: int
-    higher_is_better: bool
-    monitor: str
-    save_dir: Union[Path | str] = Path('')
 
-
-class Saver:
-    """
-    Saver can save the latest model and the best model.
-    """
-
-    def __init__(self, configuration: SaverConfiguration):
-        """
-        :param save_interval: when we want to save the latest model, it saves it per $save_step$ epochs.
-        :param higher_is_better: when we want to save the best model, we should point out what is 'best', higher_is_better means\
-        if the metric we choose is higher, then we get a better model, so we save it!
-        :param monitor: the metric that we want to observe for best model, e.g., accuracy
-        """
-        self.save_dir = configuration.save_dir
-
-        self._save_interval = configuration.save_interval
-        # count for epochs, when the count meets save_interval, it saves the latest modeling
-        self._cnt = 1
-
-        self.hib = configuration.higher_is_better
-        self._metric = -1 if self.hib else 65535
-        self.monitor = configuration.monitor
-
-    @on_main_process
-    def save_latest(self):
-        if self._cnt == self._save_interval:
-            self._cnt = 1
-            print(f"Save latest checkpoint under {self.save_dir}")
-            return True
-        else:
-            self._cnt += 1
-            return False
-
-    @on_main_process
-    def save_best(self, metric):
-        metric = metric[self.monitor]
-        condition = metric > self._metric if self.hib else metric < self._metric
-        if condition:
-            self._metric = metric
-            print(f"Save new best model under {self.save_dir}")
-            return True
-        return False
-
-
-def generate_config_path(config: str, save_dir: str):
-    save_dir = Path(save_dir) / Path(config).stem / datetime.datetime.today().strftime(
-        '%Y%m%d_%H_%M_%S')
-    save_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy(src=config, dst=save_dir)
-    return save_dir

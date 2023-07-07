@@ -1,11 +1,8 @@
 import torch
-import torch.nn as nn
 import timm
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 from dataset import FashionMNIST
 from modelings.losses import ClsCrossEntropy
-from optim.scheduler import WarmUpMultiStep
 import torchvision.transforms as T
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -70,7 +67,6 @@ metric = Accuracy(topk=(1, 5))
 
 # saver
 saver_config = SaverConfiguration(
-    save_interval=1,
     higher_is_better=True,
     monitor='accuracy@top1',
     save_dir='./runs'

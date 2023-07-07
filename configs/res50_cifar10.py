@@ -10,7 +10,7 @@ from evaluation import Accuracy
 from accelerate.utils import ProjectConfiguration
 from template.util import SaverConfiguration
 
-# Task definition
+# experiment tracker name
 wandb_log_name = "example_project"
 
 # dataset definition
@@ -21,7 +21,7 @@ img_size = (3, 224, 224)
 num_classes = 10
 classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
-# dataset & dataloader
+# dataset
 # target_transforms is for the transform on label, we first transform it
 # into LongTensor, then use one-hot encoding, at that time the tensor has shape (1, 10),
 # finally we eliminate the first dim and it turns into shape (10,)
@@ -47,7 +47,7 @@ test_set = CIFAR10(root='/data/wangzili',
                    target_transform=lambda x: torch.tensor(x),
                    )
 
-# modeling related configuration
+# model related configuration
 model = timm.create_model(model_name='resnet50',
                           pretrained=False,
                           num_classes=num_classes)
@@ -70,7 +70,6 @@ metric = Accuracy(topk=(1, 5))
 
 # saver
 saver_config = SaverConfiguration(
-    save_interval=1,
     higher_is_better=True,
     monitor='accuracy@top1',
     save_dir='./runs'

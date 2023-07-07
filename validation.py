@@ -1,7 +1,8 @@
-from template import parse_args_val, launch_val
+from template import val_args, launch_val
 
 def main():
-    args = parse_args_val()
+    parser = val_args()
+    args = parser.parse_args()
     launch_val(args)
 
 if __name__ == '__main__':

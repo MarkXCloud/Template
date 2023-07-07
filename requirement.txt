@@ -4,5 +4,6 @@ tqdm
 matplotlib
 accelerate
 albumentations
+optuna
 torchinfo
 ptflops

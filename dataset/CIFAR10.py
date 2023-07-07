@@ -1,5 +1,6 @@
+import torch
 import torchvision
-from typing import Tuple,Any
+from typing import Tuple,Any,List
 
 __all__=['CIFAR10']
 
@@ -24,3 +25,9 @@ class CIFAR10(torchvision.datasets.CIFAR10):
             target = self.target_transform(target)
 
         return image, target
+    @staticmethod
+    def collate_fn(batch:List[Tuple]):
+        batch = list(zip(*batch))
+        batch_image = torch.stack(batch[0])
+        batch_target = torch.stack(batch[1])
+        return batch_image,batch_target
