@@ -25,5 +25,4 @@ def basic_args():
 def val_args():
     parser = basic_args()
     parser.add_argument('-l','--load-from',type=str,required=True,help="path to the model weights")
-    parser.add_argument('--compile',action='store_true',help="to compile the model")
     return parser

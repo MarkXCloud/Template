@@ -13,9 +13,11 @@ def launch(args):
     # load configuration from the module
     saver_config = module_loader.saver_config
     project_config = module_loader.project_config
+
     # generate save_dir with current time
     saver_config.save_dir = util.generate_config_path(config=args.config, save_dir=saver_config.save_dir)
     project_config.project_dir = saver_config.save_dir
+
     # add loggers
     loggers = [util.SysTracker(logdir=saver_config.save_dir)]
     if args.wandb:
@@ -129,7 +131,8 @@ def launch(args):
         with torch.no_grad():
             for x, label in test_pbar:
                 outputs = model(x)
-                metric.add_batch(pred=outputs, label=label)
+                all_outputs, all_label = accelerator.gather_for_metrics((outputs, label))
+                metric.add_batch(pred=all_outputs, label=all_label)
 
         metrics = metric.compute()
 
@@ -152,26 +155,29 @@ def launch(args):
 
     accelerator.end_training()
 
-
+@torch.no_grad()
 def launch_val(args):
     module_loader = util.load_module(args.config)
+    # load configuration from the module
+    saver_config = module_loader.saver_config
+    # generate save_dir with current time
+    saver_config.save_dir = util.generate_config_path(config=args.config, save_dir=saver_config.save_dir)
 
-    accelerator = Accelerator(log_with=util.SysTracker)
+    accelerator = Accelerator(log_with=util.SysTracker(logdir=saver_config.save_dir))
     set_seed(args.seed, device_specific=True)
     accelerator.init_trackers(project_name='testing')
+    if accelerator.is_local_main_process:
+        saver_config.save_dir.mkdir(parents=True, exist_ok=True)
 
     accelerator.free_memory()
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 
     model = module_loader.model
     test_set = module_loader.test_set
     metric = module_loader.metric
 
-    assert len(test_set) % (args.batch_per_gpu * accelerator.num_processes) == 0, \
-        f"test_set with length {len(test_set)} cannot div " \
-        f"batch-size({args.batch_size}) * num_gpu({accelerator.num_processes}), which will lead to " \
-        f"result in-accurate due to the padding on last batch to align batch-size. Please assign " \
-        f"a proper batch-size to make test_set could div."
+    del module_loader
 
     model.load_state_dict(torch.load(args.load_from, map_location="cpu"))
 
@@ -188,10 +194,10 @@ def launch_val(args):
 
     model.eval()
 
-    with torch.no_grad():
-        for x, label in test_pbar:
-            outputs = model(x)
-            metric.add_batch(pred=outputs, label=label)
+    for x, label in test_pbar:
+        outputs = model(x)
+        all_outputs, all_label = accelerator.gather_for_metrics((outputs, label))
+        metric.add_batch(pred=all_outputs, label=all_label)
     metrics = metric.compute()
 
     trace_log = OrderedDict(
