@@ -1,5 +1,4 @@
 import torch
-from torch.utils.data import DataLoader
 from accelerate import Accelerator
 from accelerate.utils import set_seed, reduce
 import template.util as util
@@ -43,7 +42,7 @@ def launch(args):
     # basic info for the wandb log
     tracker_config = dict(
         **vars(args),
-        model=model.default_cfg,
+        model=getattr(model, 'default_cfg', model.__class__.__name__),
         loss=loss_fn.name,
         optimizer=dict(name=optimizer.__class__.__name__,
                        **optimizer.defaults),
@@ -75,15 +74,19 @@ def launch(args):
         wandb_tracker = accelerator.get_tracker("wandb", unwrap=True)
         wandb_tracker.save(args.config)
 
-    saver = util.Saver(configuration=saver_config, config=args.config)
+    saver = util.Saver(config=args.config, configuration=saver_config)
 
     accelerator.free_memory()
     torch.backends.cudnn.benchmark = True
 
-    train_loader = DataLoader(dataset=train_set, batch_size=args.batch_per_gpu, num_workers=args.num_workers,
-                              collate_fn=train_set.collate_fn, shuffle=True, drop_last=True, pin_memory=True)
-    test_loader = DataLoader(dataset=test_set, batch_size=args.batch_per_gpu, num_workers=args.num_workers,
-                             collate_fn=test_set.collate_fn, shuffle=False, drop_last=False, pin_memory=True)
+    train_loader = torch.utils.data.DataLoader(dataset=train_set, batch_size=args.batch_per_gpu,
+                                               num_workers=args.num_workers,
+                                               collate_fn=train_set.collate_fn, shuffle=True, drop_last=True,
+                                               pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(dataset=test_set, batch_size=args.batch_per_gpu,
+                                              num_workers=args.num_workers,
+                                              collate_fn=test_set.collate_fn, shuffle=False, drop_last=False,
+                                              pin_memory=True)
 
     model, optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader \
         = accelerator.prepare(model, optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader)
@@ -155,6 +158,7 @@ def launch(args):
 
     accelerator.end_training()
 
+
 @torch.no_grad()
 def launch_val(args):
     module_loader = util.load_module(args.config)
@@ -181,8 +185,10 @@ def launch_val(args):
 
     model.load_state_dict(torch.load(args.load_from, map_location="cpu"))
 
-    test_loader = DataLoader(dataset=test_set, batch_size=args.batch_per_gpu, num_workers=args.num_workers,
-                             collate_fn=test_set.collate_fn, shuffle=False, drop_last=False, pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(dataset=test_set, batch_size=args.batch_per_gpu,
+                                              num_workers=args.num_workers,
+                                              collate_fn=test_set.collate_fn, shuffle=False, drop_last=False,
+                                              pin_memory=True)
     model, test_loader = accelerator.prepare(model, test_loader)
 
     if args.compile:

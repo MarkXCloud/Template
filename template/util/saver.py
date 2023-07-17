@@ -20,21 +20,27 @@ class Saver:
     main_process_only = True
 
     @on_main_process
-    def __init__(self, configuration: SaverConfiguration,config:str):
+    def __init__(self, higher_is_better: bool, monitor: str, save_dir: Union[Path | str], config: str,
+                 configuration: SaverConfiguration = None):
         """
         :param higher_is_better: when we want to save the best model, we should point out what is 'best', higher_is_better means\
         if the metric we choose is higher, then we get a better model, so we save it!
         :param monitor: the metric that we want to observe for best model, e.g., accuracy
         :param save_dir: save direction, generate by generate_config_path()
         """
-        self.save_dir = configuration.save_dir
+        if configuration is not None:
+            self.save_dir = configuration.save_dir
+            self.hib = configuration.higher_is_better
+            self.monitor = configuration.monitor
+        else:
+            self.save_dir = save_dir
+            self.hib = higher_is_better
+            self.monitor = monitor
+
         self.save_dir.mkdir(parents=True, exist_ok=True)
         print(f"Current project save dir: {self.save_dir}")
         shutil.copy(src=config, dst=self.save_dir)
-
-        self.hib = configuration.higher_is_better
         self._metric = -1 if self.hib else 65535
-        self.monitor = configuration.monitor
 
     @on_main_process
     def save_best(self, metric):
