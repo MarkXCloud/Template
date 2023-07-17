@@ -82,16 +82,16 @@ model/ # your model
 	    |-ClsLoss.py # loss of classification
 runs/ # restore the weights and configs of one training run
 template/
-	|-launcher.py # main functions in it
+	|-launcher.py # launch functions in it
 	|-set_parser.py # parser
-	|-visualizer.py # nothing, to be used soon
+	|-visualizer.py # visualizer for different labels
 	|-util/
 	    |-logger.py # custom logger
 	    |-misc.py # some tools for distribution training
 	    |-saver.py # custom saver
 hyp_search.py # for hyper parameter search, haven't been finishied
 model_info.py # show #params and calculate MACS
-predict.py # perform prediction, to be used soon
+predict.py # run prediction on the image and draw the label on it.
 train.py # launch training
 validation.py # launch validation
 ```
