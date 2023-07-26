@@ -22,7 +22,7 @@ It is very **tedious** to write a deep learning codebase with Trainer, Logger or
 - torch
 - torchvision
 - timm
-- tqdm
+- rich
 - accelerate
 - albumentations
 - torchinfo
@@ -86,9 +86,10 @@ template/
 	|-set_parser.py # parser
 	|-visualizer.py # visualizer for different labels
 	|-util/
-	    |-logger.py # custom logger
+	    |-tracker.py # custom tracker
 	    |-misc.py # some tools for distribution training
 	    |-saver.py # custom saver
+	    |-rich.py # rich mudule
 hyp_search.py # for hyper parameter search, haven't been finishied
 model_info.py # show #params and calculate MACS
 predict.py # run prediction on the image and draw the label on it.
