@@ -24,8 +24,7 @@ class SysTracker(GeneralTracker):
 
     @on_main_process
     def store_init_configuration(self, values: dict):
-        with open(self.logdir / 'configuration.json', "w") as f:
-            json.dump(values, f)
+        ...
 
     @on_main_process
     def log(self, values: dict, step: Optional[int] = None):
