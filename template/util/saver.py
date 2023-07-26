@@ -4,6 +4,9 @@ from dataclasses import dataclass
 import datetime
 from accelerate.tracking import on_main_process
 from typing import Union
+from template.util.rich import MainConsole
+
+console = MainConsole(color_system='auto',log_time_format='[%Y.%m.%d %H:%M:%S]')
 
 
 @dataclass
@@ -21,24 +24,20 @@ class Saver:
 
     @on_main_process
     def __init__(self, higher_is_better: bool, monitor: str, save_dir: Union[Path | str], config: str,
-                 configuration: SaverConfiguration = None):
+                 ):
         """
         :param higher_is_better: when we want to save the best model, we should point out what is 'best', higher_is_better means\
         if the metric we choose is higher, then we get a better model, so we save it!
         :param monitor: the metric that we want to observe for best model, e.g., accuracy
         :param save_dir: save direction, generate by generate_config_path()
         """
-        if configuration is not None:
-            self.save_dir = configuration.save_dir
-            self.hib = configuration.higher_is_better
-            self.monitor = configuration.monitor
-        else:
-            self.save_dir = save_dir
-            self.hib = higher_is_better
-            self.monitor = monitor
+
+        self.save_dir = save_dir
+        self.hib = higher_is_better
+        self.monitor = monitor
 
         self.save_dir.mkdir(parents=True, exist_ok=True)
-        print(f"Current project save dir: {self.save_dir}")
+        console.log(f"Current project save dir: {self.save_dir}")
         shutil.copy(src=config, dst=self.save_dir)
         self._metric = -1 if self.hib else 65535
 
@@ -48,13 +47,26 @@ class Saver:
         condition = metric > self._metric if self.hib else metric < self._metric
         if condition:
             self._metric = metric
-            print(f"Save new best model under {self.save_dir}")
+            console.log(f"Save new [bold cyan]best model[/bold cyan] under {self.save_dir}")
             return True
         return False
+
+    @classmethod
+    def from_configuration(cls,  config: str,configuration: SaverConfiguration):
+        save_dir = configuration.save_dir
+        hib = configuration.higher_is_better
+        monitor = configuration.monitor
+        return cls(save_dir=save_dir, monitor=monitor, higher_is_better=hib,config=config)
 
     @property
     def best_metric(self):
         return self._metric
+
+    def __repr__(self):
+        return f"save directory:{self.save_dir}\n" \
+               f"monitor: {self.monitor}\n" \
+               f"high is better: {self.hib}\n" \
+               f"current best metric: {self.best_metric}"
 
 
 def generate_config_path(config: str, save_dir: str):

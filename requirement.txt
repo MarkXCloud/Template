@@ -1,6 +1,6 @@
 torch
 timm
-tqdm
+rich
 matplotlib
 accelerate
 albumentations

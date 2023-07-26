@@ -2,13 +2,13 @@ import torch
 from accelerate import Accelerator
 from accelerate.utils import set_seed, reduce
 import template.util as util
-from tqdm import tqdm
 from collections import OrderedDict
 
 
 def launch(args):
-    module_loader = util.load_module(args.config)
-
+    console = util.MainConsole(color_system='auto',log_time_format='[%Y.%m.%d %H:%M:%S]')
+    with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
+        module_loader = util.load_module(args.config)
     # load configuration from the module
     saver_config = module_loader.saver_config
     project_config = module_loader.project_config
@@ -52,20 +52,18 @@ def launch(args):
                              **epoch_scheduler.__dict__),
         learning_rate=module_loader.lr,
         dataset=repr(train_set),
-        batch=dict(batch_per_gpu=args.batch_per_gpu,
-                   num_proc=accelerator.num_processes,
-                   gradient_accumulation_step=args.grad_step,
-                   total_batch=args.batch_per_gpu * accelerator.num_processes * args.grad_step),
+        batch=OrderedDict(batch_per_gpu=args.batch_per_gpu,
+                          num_proc=accelerator.num_processes,
+                          gradient_accumulation_step=args.grad_step,
+                          total_batch_size=args.batch_per_gpu * accelerator.num_processes * args.grad_step),
         save_dir=saver_config.save_dir,
         precision=accelerator.mixed_precision,
         num_proc=accelerator.num_processes
     )
+    console.print(tracker_config)
 
-    accelerator.print(util.show_device())
-    accelerator.print(f"Batch size per gpu = {args.batch_per_gpu}\n"
-                      f"Num proc = {accelerator.num_processes}\n"
-                      f"Gradient accumulation step = {args.grad_step}\n"
-                      f"So the total batch size = {args.batch_per_gpu * accelerator.num_processes * args.grad_step}\n")
+    console.print(util.show_device(), justify="center")
+    console.print(util.show_batch_size(tracker_config['batch']), justify="center")
 
     accelerator.init_trackers(project_name=module_loader.wandb_log_name,
                               config=tracker_config)
@@ -74,11 +72,10 @@ def launch(args):
         wandb_tracker = accelerator.get_tracker("wandb", unwrap=True)
         wandb_tracker.save(args.config)
 
-    saver = util.Saver(config=args.config, configuration=saver_config)
+    saver = util.Saver.from_configuration(config=args.config, configuration=saver_config)
 
     accelerator.free_memory()
     torch.backends.cudnn.benchmark = True
-
     train_loader = torch.utils.data.DataLoader(dataset=train_set, batch_size=args.batch_per_gpu,
                                                num_workers=args.num_workers,
                                                collate_fn=train_set.collate_fn, shuffle=True, drop_last=True,
@@ -88,8 +85,9 @@ def launch(args):
                                               collate_fn=test_set.collate_fn, shuffle=False, drop_last=False,
                                               pin_memory=True)
 
-    model, optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader \
-        = accelerator.prepare(model, optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader)
+    with console.status("Prepare everything...", spinner="aesthetic", spinner_style='cyan'):
+        model, optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader \
+            = accelerator.prepare(model, optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader)
     epoch_scheduler.step_with_optimizer = False
 
     # resume from checkpoint
@@ -97,10 +95,10 @@ def launch(args):
     if args.resume:
         accelerator.load_state(args.resume)
         start_epoch = int(args.resume.split('_')[-1]) + 1
-        accelerator.print(f"Resume from: {args.resume}, start epoch: {start_epoch}")
+        console.log(f"Resume from: {args.resume}, start epoch: {start_epoch}")
 
     if args.compile:
-        print("compiling model...")
+        console.log("compile model")
         torch.set_float32_matmul_precision('high')
         model = torch.compile(model)
 
@@ -109,12 +107,11 @@ def launch(args):
     del module_loader
 
     # start training
+    console.rule("[bold red]Start Training![/bold red]:fire:", style='#FF3333')
     for e in range(start_epoch, args.epoch):
-        train_pbar = tqdm(train_loader, desc=f'Train epoch {e}', disable=not accelerator.is_local_main_process)
-
         model.train()
         loss_fn.train()
-        for x, y in train_pbar:
+        for x, y in util.track(train_loader, description=f'Train epoch {e}', disable=not accelerator.is_local_main_process):
             with accelerator.accumulate(model):
                 outputs = model(x)
                 loss_dict = loss_fn(outputs, y)
@@ -127,12 +124,10 @@ def launch(args):
         train_loss_dict = reduce(loss_dict)  # reduce the loss among all devices
         train_loss_dict = OrderedDict({k: v.item() for k, v in train_loss_dict.items()})
 
-        test_pbar = tqdm(test_loader, desc=f'Test epoch {e}', disable=not accelerator.is_local_main_process)
-
         model.eval()
         loss_fn.eval()
         with torch.no_grad():
-            for x, label in test_pbar:
+            for x, label in util.track(test_loader, description=f'Test epoch {e}', disable=not accelerator.is_local_main_process):
                 outputs = model(x)
                 all_outputs, all_label = accelerator.gather_for_metrics((outputs, label))
                 metric.add_batch(pred=all_outputs, label=all_label)
@@ -155,13 +150,15 @@ def launch(args):
             accelerator.save(accelerator.get_state_dict(model),
                              f=saver_config.save_dir / "best.pt")
         accelerator.wait_for_everyone()
-
+    console.rule("[bold dodger_blue3]Finish Training![/bold dodger_blue3]:ok:",style="cyan")
     accelerator.end_training()
 
 
 @torch.no_grad()
 def launch_val(args):
-    module_loader = util.load_module(args.config)
+    console = util.MainConsole(color_system='auto')
+    with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
+        module_loader = util.load_module(args.config)
     # load configuration from the module
     saver_config = module_loader.saver_config
     # generate save_dir with current time
@@ -189,14 +186,15 @@ def launch_val(args):
                                               num_workers=args.num_workers,
                                               collate_fn=test_set.collate_fn, shuffle=False, drop_last=False,
                                               pin_memory=True)
-    model, test_loader = accelerator.prepare(model, test_loader)
+    with console.status("Prepare everything...", spinner="aesthetic", spinner_style='cyan'):
+        model, test_loader = accelerator.prepare(model, test_loader)
 
     if args.compile:
-        print("compiling model...")
+        console.log("compile model")
         torch.set_float32_matmul_precision('high')
         model = torch.compile(model)
 
-    test_pbar = tqdm(test_loader, desc=f'Testing', disable=not accelerator.is_local_main_process)
+    test_pbar = util.track(test_loader, description=f'Testing', disable=not accelerator.is_local_main_process)
 
     model.eval()
 

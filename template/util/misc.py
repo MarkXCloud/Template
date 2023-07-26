@@ -12,7 +12,9 @@ from typing import Optional, List
 import torch
 import torch.distributed as dist
 from torch import Tensor
-
+from rich.text import Text
+from rich.columns import Columns
+from rich.panel import Panel
 
 # needed due to empty tensor bug in pytorch and torchvision 0.5
 import torchvision
@@ -290,17 +292,21 @@ def interpolate(input, size=None, scale_factor=None, mode="nearest", align_corne
 
 
 def show_device():
-    s = f'Using torch {torch.__version__} '
+    s = Text('\nUsing torch ')
+    s.append(f"{torch.__version__}\n", style="cyan")
     if torch.cuda.is_available():
-        space = ' ' * len(s)
         n = torch.cuda.device_count()
         for i, d in enumerate(range(n)):
             p = torch.cuda.get_device_properties(i)
-            s += f"{'' if i == 0 else space}CUDA:{d} ({p.name}, {p.total_memory / 1024 ** 2}MB)\n"  # bytes to MB
+            s.append(f"CUDA:{d}")
+            s.append(f" ({p.name}, ", style="bright_green")
+            s.append(f"{p.total_memory / 1024 ** 2}MB)\n", style="cyan")
     else:
-        s += 'CPU'
+        s.append("cpu")
 
     return s
 
 
-
+def show_batch_size(tracker_config: dict):
+    batch_renderable = [Panel(f"[bold magenta]{k}[/bold magenta]:[yellow]{v}",expand=True,) for k,v in tracker_config.items()]
+    return Columns(batch_renderable)

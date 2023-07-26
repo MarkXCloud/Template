@@ -1,8 +1,10 @@
 from accelerate.tracking import GeneralTracker, on_main_process
 from typing import Optional
-from prettytable import PrettyTable
+from rich.table import Table,Column
+from rich.console import Console
 import json
 from pathlib import Path
+console = Console(color_system='auto')
 
 
 class SysTracker(GeneralTracker):
@@ -14,27 +16,21 @@ class SysTracker(GeneralTracker):
     @on_main_process
     def __init__(self, logdir: Path):
         super().__init__()
-        self.table = PrettyTable()
-        self.table.float_format = ".6"
         self.logdir = logdir
 
     @property
     def tracker(self):
-        return self.table
+        return SysTracker._buffer
 
     @on_main_process
     def store_init_configuration(self, values: dict):
-        with open(self.logdir / 'configuration.json', "w") as f:
-            json.dump(values, f)
+        ...
 
     @on_main_process
     def log(self, values: dict, step: Optional[int] = None):
-        if not self.table.field_names:
-            self.table.field_names = values.keys()
-        self.table.add_row(values.values())
-        print(self.table)
-        self.table.clear_rows()
-
+        table = Table(*[Column(header=k,justify='center',header_style="bold magenta") for k in values.keys()],title="Metrics")
+        table.add_row(*[f"{v:.6f}" for v in values.values()],style='cyan')
+        console.print(table,justify="center")
         values.update({'step': step})
         SysTracker._buffer.append(values)
 
