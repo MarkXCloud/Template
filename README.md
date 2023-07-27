@@ -109,7 +109,7 @@ template/
 	|-util/
 	    |-tracker.py # custom tracker
 	    |-misc.py # some tools for distribution training
-	    |-simple_accelerator.py # custom accelerator
+	    |-custom_accelerator.py # custom accelerator
 	    |-rich.py # rich mudule
 main.py # launch all functions including train, val, predict, hyper parameter search and calculate MACS
 ```

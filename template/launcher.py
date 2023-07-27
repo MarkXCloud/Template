@@ -1,30 +1,36 @@
 import torch
 from collections import OrderedDict
-from accelerate.utils import set_seed, reduce
-import template.util as util
 
-console = util.MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
+from accelerate.utils import set_seed, reduce
+
+from template.util import load_module,show_device,show_batch_size
+from template.util.rich import MainConsole,track
+from template.util.tracker import SysTracker
+from template.util.custom_accelerator import SimplerAccelerator
+
+
+console = MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
 
 
 def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, grad_step=1, wandb=False, tb=False,
           resume='', torch_compile=False):
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
-        module_loader = util.load_module(config)
+        module_loader = load_module(config)
 
     # load configuration from the module
     saver_config = module_loader.saver_config
 
     # generate save_dir with current time
-    saver_config.project_dir = util.generate_config_path(config=config, save_dir=saver_config.project_dir)
+    saver_config.generate_config_path(config=config)
 
     # add loggers
-    loggers = [util.SysTracker(logdir=saver_config.project_dir)]
+    loggers = [SysTracker(logdir=saver_config.project_dir)]
     if wandb:
         loggers.append('wandb')
     if tb:
         loggers.append('tensorboard')
 
-    accelerator = util.SimplerAccelerator(config=config,
+    accelerator = SimplerAccelerator(config=config,
                                           log_with=loggers,
                                           saver_config=saver_config,
                                           gradient_accumulation_steps=grad_step)
@@ -77,8 +83,8 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
         wandb_tracker = accelerator.get_tracker("wandb", unwrap=True)
         wandb_tracker.save(config)
 
-    console.print(util.show_device(), justify="center")
-    console.print(util.show_batch_size(tracker_config['batch']), justify="center")
+    console.print(show_device(), justify="center")
+    console.print(show_batch_size(tracker_config['batch']), justify="center")
 
     accelerator.free_memory()
     torch.backends.cudnn.benchmark = True
@@ -117,7 +123,7 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
     for e in range(start_epoch, epoch):
         model.train()
         loss_fn.train()
-        for x, y in util.track(train_loader, description=f'Train epoch {e}',
+        for x, y in track(train_loader, description=f'Train epoch {e}',
                                disable=not accelerator.is_local_main_process):
             with accelerator.accumulate(model):
                 outputs = model(x)
@@ -134,7 +140,7 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
         model.eval()
         loss_fn.eval()
         with torch.no_grad():
-            for x, label in util.track(test_loader, description=f'Test epoch {e}',
+            for x, label in track(test_loader, description=f'Test epoch {e}',
                                        disable=not accelerator.is_local_main_process):
                 outputs = model(x)
                 all_outputs, all_label = accelerator.gather_for_metrics((outputs, label))
@@ -164,17 +170,15 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
 @torch.no_grad()
 def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4, torch_compile=False):
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
-        module_loader = util.load_module(config)
+        module_loader = load_module(config)
     # load configuration from the module
     saver_config = module_loader.saver_config
     # generate save_dir with current time
-    saver_config.save_dir = util.generate_config_path(config=config, save_dir=saver_config.save_dir)
+    saver_config.generate_config_path(config=config)
 
-    accelerator = util.SimplerAccelerator(config=config,log_with=util.SysTracker(logdir=saver_config.save_dir))
+    accelerator = SimplerAccelerator(config=config,log_with=util.SysTracker(logdir=saver_config.save_dir))
     set_seed(seed, device_specific=True)
     accelerator.init_trackers(project_name='testing')
-    if accelerator.is_local_main_process:
-        saver_config.save_dir.mkdir(parents=True, exist_ok=True)
 
     accelerator.free_memory()
     torch.backends.cudnn.benchmark = False
@@ -200,11 +204,9 @@ def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4,
         torch.set_float32_matmul_precision('high')
         model = torch.compile(model)
 
-    test_pbar = util.track(test_loader, description=f'Testing', disable=not accelerator.is_local_main_process)
-
     model.eval()
 
-    for x, label in test_pbar:
+    for x, label in track(test_loader, description=f'Testing', disable=not accelerator.is_local_main_process):
         outputs = model(x)
         all_outputs, all_label = accelerator.gather_for_metrics((outputs, label))
         metric.add_batch(pred=all_outputs, label=all_label)
@@ -226,7 +228,7 @@ def predict(config: str, img: str, load_from: str):
 
     raw_img = cv2.imread(img, cv2.IMREAD_COLOR)
 
-    module_loader = util.load_module(config)
+    module_loader = load_module(config)
 
     model = module_loader.model
     model.load_state_dict(torch.load(load_from, map_location="cpu"))
@@ -262,7 +264,7 @@ def info(config: str, batch_per_gpu=1):
     from ptflops import get_model_complexity_info
 
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
-        module_loader = util.load_module(config)
+        module_loader = load_module(config)
     model = module_loader.model
     img_size: tuple = module_loader.img_size
     input_size = (batch_per_gpu,) + img_size
@@ -283,11 +285,11 @@ def hyper_search(config: str, epoch=24, seed=3407, n_trials=3, wandb=False):
     from modelings.losses import ClsLoss
 
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
-        module_loader = util.load_module(config)
+        module_loader = load_module(config)
 
     wandbc = WeightsAndBiasesCallback(wandb_kwargs={"project": module_loader.wandb_log_name},
                                       as_multirun=True) if wandb else None
-    accelerator = util.SimplerAccelerator(config=config)
+    accelerator = SimplerAccelerator(config=config)
 
     def objective(trial: optuna.trial.Trial):
         batch_per_gpu = trial.suggest_int('batch_per_gpu', low=32, high=256)

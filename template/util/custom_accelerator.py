@@ -34,7 +34,7 @@ if is_deepspeed_available():
         DummyOptim,
         DummyScheduler,
     )
-from typing import Union, List,Any,Callable
+from typing import Union, List, Any, Callable
 from template.util.rich import MainConsole
 
 console = MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
@@ -48,18 +48,24 @@ class SaverConfiguration:
     monitor: str
     project_dir: Union[Path | str] = Path('')
 
+    def generate_config_path(self, config: str):
+        self.project_dir = Path(self.project_dir) / Path(config).stem / datetime.datetime.today().strftime(
+            '%Y%m%d_%H_%M_%S')
+
 
 class SimplerAccelerator(Accelerator):
-    def __init__(self, *args, config:str,saver_config: SaverConfiguration | None = None, **kwargs):
+    def __init__(self, *args, config: str, saver_config: SaverConfiguration | None = None, **kwargs):
         project_config = ProjectConfiguration(project_dir=saver_config.project_dir,
                                               automatic_checkpoint_naming=saver_config.automatic_checkpoint_naming,
-                                              total_limit=saver_config.total_limit)
-        super(SimplerAccelerator,self).__init__(*args, **kwargs, project_config=project_config)
-        self.hib = saver_config.higher_is_better
-        self.monitor = saver_config.monitor
+                                              total_limit=saver_config.total_limit) if saver_config else None
+        super(SimplerAccelerator, self).__init__(*args, **kwargs, project_config=project_config)
+
         saver_config.project_dir.mkdir(parents=True, exist_ok=True)
         console.log(f"Current project save dir: {saver_config.project_dir}")
         shutil.copy(src=config, dst=saver_config.project_dir)
+
+        self.hib = saver_config.higher_is_better
+        self.monitor = saver_config.monitor
         self._metric = -1 if self.hib else 65535
         self.BEST_WEIGHTS = saver_config.project_dir / "best.pt"
 
@@ -79,7 +85,7 @@ class SimplerAccelerator(Accelerator):
         return _inner
 
     @on_main_process
-    def save_state(self, output_dir: str = None, **save_model_func_kwargs):
+    def save_state(self, output_dir: Union[Path | str] = Path(''), **save_model_func_kwargs):
         if self.project_configuration.automatic_checkpoint_naming:
             output_dir = self.project_dir / "checkpoints"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -89,7 +95,7 @@ class SimplerAccelerator(Accelerator):
                     len(folders) + 1 > self.project_configuration.total_limit
             ):
 
-                def _inner(folder:Path):
+                def _inner(folder: Path):
                     return list(map(int, re.findall(r"[\/]?([0-9]+)(?=[^\/]*$)", folder.name)))[0]
 
                 folders.sort(key=_inner)
@@ -159,25 +165,22 @@ class SimplerAccelerator(Accelerator):
         return save_location
 
     @on_main_process
-    def save_best_model(self,metric,model):
+    def save_best_model(self, metric, model):
         metric = metric[self.monitor]
         condition = metric > self._metric if self.hib else metric < self._metric
         if condition:
             self._metric = metric
 
             # get the state_dict of the model
-            state_dict = self.get_state_dict(model,unwrap=True)
+            state_dict = self.get_state_dict(model, unwrap=True)
 
             console.log(f"Save new [bold cyan]best model[/bold cyan] under {self.BEST_WEIGHTS}")
             torch.save(state_dict, f=self.BEST_WEIGHTS)
 
 
-
 def generate_config_path(config: str, save_dir: str):
     """generate save direction by $CONFIG$/$current time$"""
-    save_dir = Path(save_dir) / Path(config).stem / datetime.datetime.today().strftime('%Y%m%d_%H_%M_%S')
-
-    return save_dir
+    return Path(save_dir) / Path(config).stem / datetime.datetime.today().strftime('%Y%m%d_%H_%M_%S')
 
 
 def save_accelerator_state(
