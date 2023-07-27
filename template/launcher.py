@@ -1,37 +1,33 @@
 import torch
 from collections import OrderedDict
-from accelerate import Accelerator
 from accelerate.utils import set_seed, reduce
 import template.util as util
 
 console = util.MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
 
+
 def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, grad_step=1, wandb=False, tb=False,
           resume='', torch_compile=False):
-
-
-
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
         module_loader = util.load_module(config)
 
     # load configuration from the module
     saver_config = module_loader.saver_config
-    project_config = module_loader.project_config
 
     # generate save_dir with current time
-    saver_config.save_dir = util.generate_config_path(config=config, save_dir=saver_config.save_dir)
-    project_config.project_dir = saver_config.save_dir
+    saver_config.project_dir = util.generate_config_path(config=config, save_dir=saver_config.project_dir)
 
     # add loggers
-    loggers = [util.SysTracker(logdir=saver_config.save_dir)]
+    loggers = [util.SysTracker(logdir=saver_config.project_dir)]
     if wandb:
         loggers.append('wandb')
     if tb:
         loggers.append('tensorboard')
 
-    accelerator = Accelerator(log_with=loggers,
-                              project_config=project_config,
-                              gradient_accumulation_steps=grad_step)
+    accelerator = util.SimplerAccelerator(config=config,
+                                          log_with=loggers,
+                                          saver_config=saver_config,
+                                          gradient_accumulation_steps=grad_step)
     # seed all
     set_seed(seed, device_specific=True)
 
@@ -68,7 +64,7 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
                           num_proc=accelerator.num_processes,
                           gradient_accumulation_step=grad_step,
                           total_batch_size=batch_per_gpu * accelerator.num_processes * grad_step),
-        save_dir=saver_config.save_dir,
+        saver=saver_config,
         precision=accelerator.mixed_precision,
         num_proc=accelerator.num_processes
     )
@@ -80,8 +76,6 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
     if wandb and accelerator.is_local_main_process:
         wandb_tracker = accelerator.get_tracker("wandb", unwrap=True)
         wandb_tracker.save(config)
-
-    saver = util.Saver.from_configuration(config=config, configuration=saver_config)
 
     console.print(util.show_device(), justify="center")
     console.print(util.show_batch_size(tracker_config['batch']), justify="center")
@@ -157,9 +151,9 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
         accelerator.log(trace_log, step=e)
 
         # save latest checkpoint
-        saver.save_state(accelerator)
+        accelerator.save_state()
         # save best model
-        saver.save_best(metrics,accelerator,model)
+        accelerator.save_best_model(metrics, model)
 
         accelerator.wait_for_everyone()
 
@@ -169,7 +163,6 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
 
 @torch.no_grad()
 def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4, torch_compile=False):
-
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
         module_loader = util.load_module(config)
     # load configuration from the module
@@ -177,7 +170,7 @@ def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4,
     # generate save_dir with current time
     saver_config.save_dir = util.generate_config_path(config=config, save_dir=saver_config.save_dir)
 
-    accelerator = Accelerator(log_with=util.SysTracker(logdir=saver_config.save_dir))
+    accelerator = util.SimplerAccelerator(config=config,log_with=util.SysTracker(logdir=saver_config.save_dir))
     set_seed(seed, device_specific=True)
     accelerator.init_trackers(project_name='testing')
     if accelerator.is_local_main_process:
@@ -292,10 +285,9 @@ def hyper_search(config: str, epoch=24, seed=3407, n_trials=3, wandb=False):
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
         module_loader = util.load_module(config)
 
-    wandbc = WeightsAndBiasesCallback(wandb_kwargs={"project": module_loader.wandb_log_name},as_multirun=True) if wandb else None
-    accelerator = Accelerator()
-
-
+    wandbc = WeightsAndBiasesCallback(wandb_kwargs={"project": module_loader.wandb_log_name},
+                                      as_multirun=True) if wandb else None
+    accelerator = util.SimplerAccelerator(config=config)
 
     def objective(trial: optuna.trial.Trial):
         batch_per_gpu = trial.suggest_int('batch_per_gpu', low=32, high=256)
@@ -303,16 +295,15 @@ def hyper_search(config: str, epoch=24, seed=3407, n_trials=3, wandb=False):
         optimizer_category = trial.suggest_categorical('optimizer', choices=['Adam', 'AdamW', 'SGD'])
         loss_fn_category = trial.suggest_categorical('loss_fn', choices=['ClsMSE', 'ClsCrossEntropy'])
 
-
         model = module_loader.model
         model.init_weights()
-        loss_fn = getattr(ClsLoss,loss_fn_category)()
+        loss_fn = getattr(ClsLoss, loss_fn_category)()
         train_set = module_loader.train_set
         test_set = module_loader.test_set
-        optimizer = getattr(torch.optim,optimizer_category)(params=model.parameters(), lr=lr)
+        optimizer = getattr(torch.optim, optimizer_category)(params=model.parameters(), lr=lr)
         metric = module_loader.metric
 
-        set_seed(seed,device_specific=True)
+        set_seed(seed, device_specific=True)
 
         accelerator.free_memory()
 
@@ -350,7 +341,6 @@ def hyper_search(config: str, epoch=24, seed=3407, n_trials=3, wandb=False):
 
         metrics = metric.compute()
         return metrics[module_loader.saver_config.monitor]
-
 
     study = optuna.create_study(direction='maximize' if module_loader.saver_config.higher_is_better else 'minimize')
     study.optimize(objective, n_trials=n_trials, callbacks=[wandbc])

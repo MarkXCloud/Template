@@ -1,6 +1,6 @@
 from .misc import *
 from .tracker import *
-from .saver import *
+from .simple_accelerator import *
 from .rich import *
 
 def load_module(script_path):

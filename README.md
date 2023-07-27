@@ -13,7 +13,7 @@ It is very **tedious** to write a deep learning codebase with Trainer, Logger or
 4. Distributed training, supported by [accelerate](https://huggingface.co/docs/accelerate/index). With some useful features of accelerate we can easily launch distributed training with small changes of code, while avoid some tedious changes including `sampler.set_epoch()` (used to set random seed every epoch in ddp), `model_saved=ddp_model.module` (because primitive model is wrapped for ddp).
 5. [TensorBoard](https://www.tensorflow.org/tensorboard), [WandB](https://wandb.ai/site) and custom **SysTracker** for logging the info of everything at first, and tracking the loss or other metrics curve.
 6. Evaluation following [evaluate](https://huggingface.co/docs/evaluate/index), where we record the temp results and calculate the final metric at the end of one epoch. Initiate the evaluator in config, call it in test loop to record predictions, and finally compute all the metrics. If you want to use a custom metric you should rewrite `add_batch()` method and `compute()`method.
-7. Saver to save the latest checkpoint and the best model with specific metric, also you can resume from any checkpoint or validate the best model.
+7. Custom save strategy by rewriting `Accelerator` to save the latest checkpoint and the best model with specific metric, also you can resume from any checkpoint or validate the best model.
 8. Model #params and #MACS supported by [torchinfo](https://github.com/TylerYep/torchinfo) and [ptflops](https://github.com/LukasHedegaard/ptflops).
 9. All the codes are very simple and neat to make you easy to change everywhere for custom function. If you want to define other modules like loss or scheduler, you can just create a python file, write it and import it in you config.
 
@@ -109,7 +109,7 @@ template/
 	|-util/
 	    |-tracker.py # custom tracker
 	    |-misc.py # some tools for distribution training
-	    |-saver.py # custom saver
+	    |-simple_accelerator.py # custom accelerator
 	    |-rich.py # rich mudule
 main.py # launch all functions including train, val, predict, hyper parameter search and calculate MACS
 ```
