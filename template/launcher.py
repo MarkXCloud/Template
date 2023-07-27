@@ -70,7 +70,7 @@ def launch(args):
     accelerator.init_trackers(project_name=module_loader.wandb_log_name,
                               config=tracker_config)
 
-    if args.wandb:
+    if args.wandb and accelerator.is_local_main_process:
         wandb_tracker = accelerator.get_tracker("wandb", unwrap=True)
         wandb_tracker.save(args.config)
 

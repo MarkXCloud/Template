@@ -20,7 +20,7 @@ class Saver:
     main_process_only = True
 
     @on_main_process
-    def __init__(self, higher_is_better: bool, monitor: str, save_dir: Union[Path | str], config: str,
+    def __init__(self, higher_is_better: bool=None, monitor: str=None, save_dir: Union[Path | str]=None, config: str=None,
                  configuration: SaverConfiguration = None):
         """
         :param higher_is_better: when we want to save the best model, we should point out what is 'best', higher_is_better means\
