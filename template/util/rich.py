@@ -25,8 +25,14 @@ from accelerate.state import PartialState
 
 state = PartialState()
 
-
+_singleton_dict = dict()
 class MainConsole(Console):
+    _single_dict = _singleton_dict
+    def __init__(self,*args,**kwargs):
+        self.__dict__ = self._single_dict
+        if not self.initialized:
+            super().__init__(*args,**kwargs)
+
     @state.on_main_process
     def print(self, *args, **kwargs):
         super().print(*args, **kwargs)
@@ -38,7 +44,9 @@ class MainConsole(Console):
     @state.on_main_process
     def rule(self, *args, **kwargs):
         super().rule(*args, **kwargs)
-
+    @property
+    def initialized(self):
+        return self._single_dict!={}
 
 class IterSpeedColumn(ProgressColumn):
     """Renders human readable iter speed."""
@@ -83,7 +91,6 @@ def track(
         pulse_style (StyleType, optional): Style for pulsing bars. Defaults to "bar.pulse".
         update_period (float, optional): Minimum time (in seconds) between calls to update(). Defaults to 0.1.
         disable (bool, optional): Disable display of progress.
-        show_speed (bool, optional): Show speed if total isn't known. Defaults to True.
     Returns:
         Iterable[ProgressType]: An iterable of the values in the sequence.
 

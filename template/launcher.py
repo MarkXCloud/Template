@@ -1,15 +1,19 @@
 import torch
+from collections import OrderedDict
 from accelerate import Accelerator
 from accelerate.utils import set_seed, reduce
 import template.util as util
-from collections import OrderedDict
 
+console = util.MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
 
 def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, grad_step=1, wandb=False, tb=False,
           resume='', torch_compile=False):
-    console = util.MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
+
+
+
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
         module_loader = util.load_module(config)
+
     # load configuration from the module
     saver_config = module_loader.saver_config
     project_config = module_loader.project_config
@@ -96,7 +100,7 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
     with console.status("Prepare everything...", spinner="aesthetic", spinner_style='cyan'):
         model, optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader \
             = accelerator.prepare(model, optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader)
-    epoch_scheduler.step_with_optimizer = False
+        epoch_scheduler.step_with_optimizer = False
 
     # resume from checkpoint
     start_epoch = 0
@@ -153,20 +157,19 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
         accelerator.log(trace_log, step=e)
 
         # save latest checkpoint
-        if accelerator.is_local_main_process:
-            accelerator.save_state()
+        saver.save_state(accelerator)
         # save best model
-        if saver.save_best(metric=metrics):
-            accelerator.save(accelerator.get_state_dict(model),
-                             f=saver_config.save_dir / "best.pt")
+        saver.save_best(metrics,accelerator,model)
+
         accelerator.wait_for_everyone()
+
     console.rule("[bold dodger_blue3]Finish Training![/bold dodger_blue3]:ok:", style="cyan")
     accelerator.end_training()
 
 
 @torch.no_grad()
 def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4, torch_compile=False):
-    console = util.MainConsole(color_system='auto')
+
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
         module_loader = util.load_module(config)
     # load configuration from the module
@@ -265,7 +268,6 @@ def info(config: str, batch_per_gpu=1):
     from torchinfo import summary
     from ptflops import get_model_complexity_info
 
-    console = util.MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
         module_loader = util.load_module(config)
     model = module_loader.model
@@ -287,7 +289,6 @@ def hyper_search(config: str, epoch=24, seed=3407, n_trials=3, wandb=False):
     from optuna.integration.wandb import WeightsAndBiasesCallback
     from modelings.losses import ClsLoss
 
-    console = util.MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
         module_loader = util.load_module(config)
 

@@ -55,7 +55,7 @@ model = timm.create_model(model_name='resnet50',
 loss_fn = ClsCrossEntropy()
 
 lr = 5e-3
-optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
+optimizer = torch.optim.AdamW(params=model.parameters(), lr=lr)
 # Note: in accelerate, the AcceleratedScheduler steps along with num_process
 iter_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer=optimizer,
                                                    start_factor=0.01,
