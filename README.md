@@ -23,6 +23,7 @@ It is very **tedious** to write a deep learning codebase with Trainer, Logger or
 - torchvision
 - timm
 - rich
+- fire
 - accelerate
 - albumentations
 - torchinfo
@@ -33,7 +34,7 @@ It is very **tedious** to write a deep learning codebase with Trainer, Logger or
 To train a model directly:
 
 ```sh
-accelerate launch train.py configs/res50_cifar10.py
+accelerate launch main.py train configs/res50_cifar10.py
 ```
 
 Then you can find your run under `runs/res50_cifar10/$local_time$/` with your config file and `.pt` weights.
@@ -41,27 +42,27 @@ Then you can find your run under `runs/res50_cifar10/$local_time$/` with your co
 To use distributed training:
 
 ```sh
-accelerate launch --multi_gpu train.py configs/res50_cifar10.py
+accelerate launch --multi_gpu main.py train configs/res50_cifar10.py
 ```
 
 Other shell configurations please refer [accelerate](https://huggingface.co/docs/accelerate/index).
 
 Resume from any checkpoint:
 ```sh
-accelerate launch train.py configs/res50_cifar10.py --resume YOUR/CHECKPOINT/FOLDER/PATH
+accelerate launch main.py train configs/res50_cifar10.py --resume YOUR/CHECKPOINT/FOLDER/PATH
 ```
 
 # Validation
 To validate a model:
 ```sh
-accelerate launch validation.py configs/res50_cifar10.py --load-form YOU/PATH/TO/WEIGHTS.pt
+accelerate launch main.py val configs/res50_cifar10.py --load-form YOU/PATH/TO/WEIGHTS.pt
 ```
 # Calculate parameters and MACS
 
 To show the #params and MACS of your model:
 
 ```sh
-python model_info.py configs/res50_cifar10.py
+python mian.py info configs/res50_cifar10.py
 ```
 
 
@@ -91,10 +92,7 @@ template/
 	    |-saver.py # custom saver
 	    |-rich.py # rich mudule
 hyp_search.py # for hyper parameter search, haven't been finishied
-model_info.py # show #params and calculate MACS
-predict.py # run prediction on the image and draw the label on it.
-train.py # launch training
-validation.py # launch validation
+main.py # launch all functions including train, val, predict and calculate MACS
 ```
 
 No matter what modules you want to customize, you can just write it in the corresponding file and import it in your own config.

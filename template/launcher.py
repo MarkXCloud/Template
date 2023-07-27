@@ -5,30 +5,31 @@ import template.util as util
 from collections import OrderedDict
 
 
-def launch(args):
-    console = util.MainConsole(color_system='auto',log_time_format='[%Y.%m.%d %H:%M:%S]')
+def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, grad_step=1, wandb=False, tb=False,
+          resume='', torch_compile=False):
+    console = util.MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
-        module_loader = util.load_module(args.config)
+        module_loader = util.load_module(config)
     # load configuration from the module
     saver_config = module_loader.saver_config
     project_config = module_loader.project_config
 
     # generate save_dir with current time
-    saver_config.save_dir = util.generate_config_path(config=args.config, save_dir=saver_config.save_dir)
+    saver_config.save_dir = util.generate_config_path(config=config, save_dir=saver_config.save_dir)
     project_config.project_dir = saver_config.save_dir
 
     # add loggers
     loggers = [util.SysTracker(logdir=saver_config.save_dir)]
-    if args.wandb:
+    if wandb:
         loggers.append('wandb')
-    if args.tb:
+    if tb:
         loggers.append('tensorboard')
 
     accelerator = Accelerator(log_with=loggers,
                               project_config=project_config,
-                              gradient_accumulation_steps=args.grad_step)
+                              gradient_accumulation_steps=grad_step)
     # seed all
-    set_seed(args.seed, device_specific=True)
+    set_seed(seed, device_specific=True)
 
     model = module_loader.model
     loss_fn = module_loader.loss_fn
@@ -41,7 +42,14 @@ def launch(args):
 
     # basic info for the wandb log
     tracker_config = dict(
-        **vars(args),
+        config=config,
+        epoch=epoch,
+        resume=resume,
+        compile=torch_compile,
+        seed=seed,
+        num_workers=num_workers,
+        wandb=wandb,
+        tb=tb,
         model=getattr(model, 'default_cfg', model.__class__.__name__),
         loss=loss_fn.name,
         optimizer=dict(name=optimizer.__class__.__name__,
@@ -52,36 +60,36 @@ def launch(args):
                              **epoch_scheduler.__dict__),
         learning_rate=module_loader.lr,
         dataset=repr(train_set),
-        batch=OrderedDict(batch_per_gpu=args.batch_per_gpu,
+        batch=OrderedDict(batch_per_gpu=batch_per_gpu,
                           num_proc=accelerator.num_processes,
-                          gradient_accumulation_step=args.grad_step,
-                          total_batch_size=args.batch_per_gpu * accelerator.num_processes * args.grad_step),
+                          gradient_accumulation_step=grad_step,
+                          total_batch_size=batch_per_gpu * accelerator.num_processes * grad_step),
         save_dir=saver_config.save_dir,
         precision=accelerator.mixed_precision,
         num_proc=accelerator.num_processes
     )
     console.print(tracker_config)
 
-    console.print(util.show_device(), justify="center")
-    console.print(util.show_batch_size(tracker_config['batch']), justify="center")
-
     accelerator.init_trackers(project_name=module_loader.wandb_log_name,
                               config=tracker_config)
 
-    if args.wandb:
+    if wandb and accelerator.is_local_main_process:
         wandb_tracker = accelerator.get_tracker("wandb", unwrap=True)
-        wandb_tracker.save(args.config)
+        wandb_tracker.save(config)
 
-    saver = util.Saver.from_configuration(config=args.config, configuration=saver_config)
+    saver = util.Saver.from_configuration(config=config, configuration=saver_config)
+
+    console.print(util.show_device(), justify="center")
+    console.print(util.show_batch_size(tracker_config['batch']), justify="center")
 
     accelerator.free_memory()
     torch.backends.cudnn.benchmark = True
-    train_loader = torch.utils.data.DataLoader(dataset=train_set, batch_size=args.batch_per_gpu,
-                                               num_workers=args.num_workers,
+    train_loader = torch.utils.data.DataLoader(dataset=train_set, batch_size=batch_per_gpu,
+                                               num_workers=num_workers,
                                                collate_fn=train_set.collate_fn, shuffle=True, drop_last=True,
                                                pin_memory=True)
-    test_loader = torch.utils.data.DataLoader(dataset=test_set, batch_size=args.batch_per_gpu,
-                                              num_workers=args.num_workers,
+    test_loader = torch.utils.data.DataLoader(dataset=test_set, batch_size=batch_per_gpu,
+                                              num_workers=num_workers,
                                               collate_fn=test_set.collate_fn, shuffle=False, drop_last=False,
                                               pin_memory=True)
 
@@ -92,12 +100,12 @@ def launch(args):
 
     # resume from checkpoint
     start_epoch = 0
-    if args.resume:
-        accelerator.load_state(args.resume)
-        start_epoch = int(args.resume.split('_')[-1]) + 1
-        console.log(f"Resume from: {args.resume}, start epoch: {start_epoch}")
+    if resume:
+        accelerator.load_state(resume)
+        start_epoch = int(resume.split('_')[-1]) + 1
+        console.log(f"Resume from: {resume}, start epoch: {start_epoch}")
 
-    if args.compile:
+    if torch_compile:
         console.log("compile model")
         torch.set_float32_matmul_precision('high')
         model = torch.compile(model)
@@ -108,10 +116,11 @@ def launch(args):
 
     # start training
     console.rule("[bold red]Start Training![/bold red]:fire:", style='#FF3333')
-    for e in range(start_epoch, args.epoch):
+    for e in range(start_epoch, epoch):
         model.train()
         loss_fn.train()
-        for x, y in util.track(train_loader, description=f'Train epoch {e}', disable=not accelerator.is_local_main_process):
+        for x, y in util.track(train_loader, description=f'Train epoch {e}',
+                               disable=not accelerator.is_local_main_process):
             with accelerator.accumulate(model):
                 outputs = model(x)
                 loss_dict = loss_fn(outputs, y)
@@ -127,7 +136,8 @@ def launch(args):
         model.eval()
         loss_fn.eval()
         with torch.no_grad():
-            for x, label in util.track(test_loader, description=f'Test epoch {e}', disable=not accelerator.is_local_main_process):
+            for x, label in util.track(test_loader, description=f'Test epoch {e}',
+                                       disable=not accelerator.is_local_main_process):
                 outputs = model(x)
                 all_outputs, all_label = accelerator.gather_for_metrics((outputs, label))
                 metric.add_batch(pred=all_outputs, label=all_label)
@@ -150,22 +160,22 @@ def launch(args):
             accelerator.save(accelerator.get_state_dict(model),
                              f=saver_config.save_dir / "best.pt")
         accelerator.wait_for_everyone()
-    console.rule("[bold dodger_blue3]Finish Training![/bold dodger_blue3]:ok:",style="cyan")
+    console.rule("[bold dodger_blue3]Finish Training![/bold dodger_blue3]:ok:", style="cyan")
     accelerator.end_training()
 
 
 @torch.no_grad()
-def launch_val(args):
+def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4, torch_compile=False):
     console = util.MainConsole(color_system='auto')
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
-        module_loader = util.load_module(args.config)
+        module_loader = util.load_module(config)
     # load configuration from the module
     saver_config = module_loader.saver_config
     # generate save_dir with current time
-    saver_config.save_dir = util.generate_config_path(config=args.config, save_dir=saver_config.save_dir)
+    saver_config.save_dir = util.generate_config_path(config=config, save_dir=saver_config.save_dir)
 
     accelerator = Accelerator(log_with=util.SysTracker(logdir=saver_config.save_dir))
-    set_seed(args.seed, device_specific=True)
+    set_seed(seed, device_specific=True)
     accelerator.init_trackers(project_name='testing')
     if accelerator.is_local_main_process:
         saver_config.save_dir.mkdir(parents=True, exist_ok=True)
@@ -180,16 +190,16 @@ def launch_val(args):
 
     del module_loader
 
-    model.load_state_dict(torch.load(args.load_from, map_location="cpu"))
+    model.load_state_dict(torch.load(load_from, map_location="cpu"))
 
-    test_loader = torch.utils.data.DataLoader(dataset=test_set, batch_size=args.batch_per_gpu,
-                                              num_workers=args.num_workers,
+    test_loader = torch.utils.data.DataLoader(dataset=test_set, batch_size=batch_per_gpu,
+                                              num_workers=num_workers,
                                               collate_fn=test_set.collate_fn, shuffle=False, drop_last=False,
                                               pin_memory=True)
     with console.status("Prepare everything...", spinner="aesthetic", spinner_style='cyan'):
         model, test_loader = accelerator.prepare(model, test_loader)
 
-    if args.compile:
+    if torch_compile:
         console.log("compile model")
         torch.set_float32_matmul_precision('high')
         model = torch.compile(model)
@@ -210,3 +220,63 @@ def launch_val(args):
 
     accelerator.log(trace_log, step=0)
     accelerator.end_training()
+
+
+def predict(config: str, img: str, load_from: str):
+    import cv2
+    import albumentations as A
+    from albumentations.pytorch import ToTensorV2
+    from template.visualizer import ImageClassificationVisualizer
+
+    raw_img = cv2.imread(img, cv2.IMREAD_COLOR)
+
+    module_loader = util.load_module(config)
+
+    model = module_loader.model
+    model.load_state_dict(torch.load(load_from, map_location="cpu"))
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model = model.to(device)
+
+    vis = ImageClassificationVisualizer()
+
+    # preprocess
+    image = cv2.cvtColor(raw_img, cv2.COLOR_BGR2RGB)
+    transform = A.Compose([
+        A.Resize(module_loader.img_size[-2], module_loader.img_size[-1]),
+        A.Normalize(mean=(0.485, 0.456, 0.406),
+                    std=(0.229, 0.224, 0.225)),
+        ToTensorV2()])
+    image = transform(image=image)['image']
+    image = torch.unsqueeze(image, 0)
+    image = image.to(device)
+    with torch.no_grad():
+        output = model(image)
+
+    # post process
+    out_idx = torch.argmax(output, -1)
+    out_idx = torch.squeeze(out_idx, 0).cpu().item()
+    out_class = module_loader.classes[out_idx]
+
+    vis.draw(image=raw_img, label=out_class)
+
+
+def info(config: str, batch_per_gpu=1):
+    import torch
+    from torchinfo import summary
+    from ptflops import get_model_complexity_info
+
+    console = util.MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
+    with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
+        module_loader = util.load_module(config)
+    model = module_loader.model
+    img_size: tuple = module_loader.img_size
+    input_size = (batch_per_gpu,) + img_size
+    del module_loader
+
+    with torch.cuda.device(0):
+        with console.status("Calculating...", spinner="aesthetic", spinner_style='cyan'):
+            summary(model, input_size)
+            macs, params = get_model_complexity_info(model, img_size, as_strings=True,
+                                                 print_per_layer_stat=True, verbose=True)
+        print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+        print('{:<30}  {:<8}'.format('Number of parameters: ', params))
