@@ -57,12 +57,32 @@ To validate a model:
 ```sh
 accelerate launch main.py val configs/res50_cifar10.py --load-form YOU/PATH/TO/WEIGHTS.pt
 ```
+# Predict on a single image
+
+To perform prediction on a certain image:
+
+```sh
+python main.py predict configs/res50_cifar10.py --img YOU/PATH/TO/IMAGE.jpg --load-form YOU/PATH/TO/WEIGHTS.pt
+```
+
+And finally you can find the prediction by `./result/result.jpg` .
+
 # Calculate parameters and MACS
 
 To show the #params and MACS of your model:
 
 ```sh
-python mian.py info configs/res50_cifar10.py
+python main.py info configs/res50_cifar10.py
+```
+
+
+
+# Hyper parameter search
+
+To search proper hyper parameters, you can run:
+
+```sh
+python main.py hyper_search configs/res50_cifar10.py  --n_trials 3
 ```
 
 
@@ -91,8 +111,7 @@ template/
 	    |-misc.py # some tools for distribution training
 	    |-saver.py # custom saver
 	    |-rich.py # rich mudule
-hyp_search.py # for hyper parameter search, haven't been finishied
-main.py # launch all functions including train, val, predict and calculate MACS
+main.py # launch all functions including train, val, predict, hyper parameter search and calculate MACS
 ```
 
 No matter what modules you want to customize, you can just write it in the corresponding file and import it in your own config.

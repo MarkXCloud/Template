@@ -277,6 +277,85 @@ def info(config: str, batch_per_gpu=1):
         with console.status("Calculating...", spinner="aesthetic", spinner_style='cyan'):
             summary(model, input_size)
             macs, params = get_model_complexity_info(model, img_size, as_strings=True,
-                                                 print_per_layer_stat=True, verbose=True)
+                                                     print_per_layer_stat=True, verbose=True)
         print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
         print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+
+
+def hyper_search(config: str, epoch=24, seed=3407, n_trials=3, wandb=False):
+    import optuna
+    from optuna.integration.wandb import WeightsAndBiasesCallback
+    from modelings.losses import ClsLoss
+
+    console = util.MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
+    with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
+        module_loader = util.load_module(config)
+
+    wandbc = WeightsAndBiasesCallback(wandb_kwargs={"project": module_loader.wandb_log_name},as_multirun=True) if wandb else None
+    accelerator = Accelerator()
+
+
+
+    def objective(trial: optuna.trial.Trial):
+        batch_per_gpu = trial.suggest_int('batch_per_gpu', low=32, high=256)
+        lr = trial.suggest_float('lr', low=1e-5, high=1e-2, step=1e-5)
+        optimizer_category = trial.suggest_categorical('optimizer', choices=['Adam', 'AdamW', 'SGD'])
+        loss_fn_category = trial.suggest_categorical('loss_fn', choices=['ClsMSE', 'ClsCrossEntropy'])
+
+
+        model = module_loader.model
+        model.init_weights()
+        loss_fn = getattr(ClsLoss,loss_fn_category)()
+        train_set = module_loader.train_set
+        test_set = module_loader.test_set
+        optimizer = getattr(torch.optim,optimizer_category)(params=model.parameters(), lr=lr)
+        metric = module_loader.metric
+
+        set_seed(seed,device_specific=True)
+
+        accelerator.free_memory()
+
+        torch.backends.cudnn.benchmark = True
+        train_loader = torch.utils.data.DataLoader(dataset=train_set, batch_size=batch_per_gpu,
+                                                   num_workers=4,
+                                                   collate_fn=train_set.collate_fn, shuffle=True, drop_last=True,
+                                                   pin_memory=True)
+        test_loader = torch.utils.data.DataLoader(dataset=test_set, batch_size=batch_per_gpu,
+                                                  num_workers=4,
+                                                  collate_fn=test_set.collate_fn, shuffle=False, drop_last=False,
+                                                  pin_memory=True)
+
+        with console.status("Prepare everything...", spinner="aesthetic", spinner_style='cyan'):
+            model, optimizer, train_loader, test_loader \
+                = accelerator.prepare(model, optimizer, train_loader, test_loader)
+
+        model.train()
+        loss_fn.train()
+        for e in range(epoch):
+            for x, y in train_loader:
+                outputs = model(x)
+                loss_dict = loss_fn(outputs, y)
+                accelerator.backward(loss_dict['loss'])
+                optimizer.step()
+                optimizer.zero_grad()
+
+        model.eval()
+        loss_fn.eval()
+        with torch.no_grad():
+            for x, label in test_loader:
+                outputs = model(x)
+                all_outputs, all_label = accelerator.gather_for_metrics((outputs, label))
+                metric.add_batch(pred=all_outputs, label=all_label)
+
+        metrics = metric.compute()
+        return metrics[module_loader.saver_config.monitor]
+
+
+    study = optuna.create_study(direction='maximize' if module_loader.saver_config.higher_is_better else 'minimize')
+    study.optimize(objective, n_trials=n_trials, callbacks=[wandbc])
+
+    trial = study.best_trial
+    print(f"Value:{trial.value}")
+    print(" Params:")
+    for key, value in trial.params.items():
+        print("{}: {}".format(key, value))
