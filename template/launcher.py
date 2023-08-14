@@ -1,19 +1,20 @@
 import torch
-from collections import OrderedDict
 
 from accelerate.utils import set_seed, reduce
 
-from template.util import load_module,show_device,show_batch_size
-from template.util.rich import MainConsole,track
-from template.util.tracker import SysTracker
+from template.util import load_module, show_device, show_batch_size
 from template.util.custom_accelerator import SimplerAccelerator
+from template.util.rich import MainConsole, track
+from template.util.tracker import SysTracker
 
+
+__all__ = ['train', 'val', 'predict', 'info', 'hyper_search']
 
 console = MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
 
 
 def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, grad_step=1, wandb=False, tb=False,
-          resume='', torch_compile=False):
+          resume=''):
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
         module_loader = load_module(config)
 
@@ -31,9 +32,9 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
         loggers.append('tensorboard')
 
     accelerator = SimplerAccelerator(config=config,
-                                          log_with=loggers,
-                                          saver_config=saver_config,
-                                          gradient_accumulation_steps=grad_step)
+                                     log_with=loggers,
+                                     saver_config=saver_config,
+                                     gradient_accumulation_steps=grad_step)
     # seed all
     set_seed(seed, device_specific=True)
 
@@ -51,7 +52,6 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
         config=config,
         epoch=epoch,
         resume=resume,
-        compile=torch_compile,
         seed=seed,
         num_workers=num_workers,
         wandb=wandb,
@@ -66,13 +66,15 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
                              **epoch_scheduler.__dict__),
         learning_rate=module_loader.lr,
         dataset=repr(train_set),
-        batch=OrderedDict(batch_per_gpu=batch_per_gpu,
+        batch=dict(batch_per_gpu=batch_per_gpu,
                           num_proc=accelerator.num_processes,
                           gradient_accumulation_step=grad_step,
                           total_batch_size=batch_per_gpu * accelerator.num_processes * grad_step),
-        saver=saver_config,
+        saver=saver_config.to_dict(),
+        distributed_type=accelerator.distributed_type.value,
         precision=accelerator.mixed_precision,
-        num_proc=accelerator.num_processes
+        num_proc=accelerator.num_processes,
+        dynamo=accelerator.state.dynamo_plugin.to_dict()
     )
     console.print(tracker_config)
 
@@ -98,8 +100,9 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
                                               pin_memory=True)
 
     with console.status("Prepare everything...", spinner="aesthetic", spinner_style='cyan'):
-        model, optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader \
-            = accelerator.prepare(model, optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader)
+        model = accelerator.prepare(model)
+        optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader \
+            = accelerator.prepare(optimizer, iter_scheduler, epoch_scheduler, train_loader, test_loader)
         epoch_scheduler.step_with_optimizer = False
 
     # resume from checkpoint
@@ -108,11 +111,6 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
         accelerator.load_state(resume)
         start_epoch = int(resume.split('_')[-1]) + 1
         console.log(f"Resume from: {resume}, start epoch: {start_epoch}")
-
-    if torch_compile:
-        console.log("compile model")
-        torch.set_float32_matmul_precision('high')
-        model = torch.compile(model)
 
     loss_dict = {}
 
@@ -124,7 +122,7 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
         model.train()
         loss_fn.train()
         for x, y in track(train_loader, description=f'Train epoch {e}',
-                               disable=not accelerator.is_local_main_process):
+                          disable=not accelerator.is_local_main_process):
             with accelerator.accumulate(model):
                 outputs = model(x)
                 loss_dict = loss_fn(outputs, y)
@@ -135,20 +133,20 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
         epoch_scheduler.step()
 
         train_loss_dict = reduce(loss_dict)  # reduce the loss among all devices
-        train_loss_dict = OrderedDict({k: v.item() for k, v in train_loss_dict.items()})
+        train_loss_dict = {k: v.item() for k, v in train_loss_dict.items()}
 
         model.eval()
         loss_fn.eval()
         with torch.no_grad():
             for x, label in track(test_loader, description=f'Test epoch {e}',
-                                       disable=not accelerator.is_local_main_process):
+                                  disable=not accelerator.is_local_main_process):
                 outputs = model(x)
                 all_outputs, all_label = accelerator.gather_for_metrics((outputs, label))
                 metric.add_batch(pred=all_outputs, label=all_label)
 
         metrics = metric.compute()
 
-        trace_log = OrderedDict(
+        trace_log = dict(
             **metrics,
             **train_loss_dict,
             learning_rate=optimizer.optimizer.param_groups[0]['lr'],
@@ -176,7 +174,9 @@ def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4,
     # generate save_dir with current time
     saver_config.generate_config_path(config=config)
 
-    accelerator = SimplerAccelerator(config=config,log_with=util.SysTracker(logdir=saver_config.save_dir))
+    accelerator = SimplerAccelerator(config=config,
+                                     log_with=SysTracker(logdir=saver_config.project_dir),
+                                     saver_config=saver_config)
     set_seed(seed, device_specific=True)
     accelerator.init_trackers(project_name='testing')
 
@@ -199,11 +199,6 @@ def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4,
     with console.status("Prepare everything...", spinner="aesthetic", spinner_style='cyan'):
         model, test_loader = accelerator.prepare(model, test_loader)
 
-    if torch_compile:
-        console.log("compile model")
-        torch.set_float32_matmul_precision('high')
-        model = torch.compile(model)
-
     model.eval()
 
     for x, label in track(test_loader, description=f'Testing', disable=not accelerator.is_local_main_process):
@@ -212,11 +207,8 @@ def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4,
         metric.add_batch(pred=all_outputs, label=all_label)
     metrics = metric.compute()
 
-    trace_log = OrderedDict(
-        **metrics
-    )
 
-    accelerator.log(trace_log, step=0)
+    accelerator.log(metrics, step=0)
     accelerator.end_training()
 
 
@@ -352,3 +344,7 @@ def hyper_search(config: str, epoch=24, seed=3407, n_trials=3, wandb=False):
     print(" Params:")
     for key, value in trial.params.items():
         print("{}: {}".format(key, value))
+
+
+def show_gpu():
+    console.print(show_device(), justify='center')

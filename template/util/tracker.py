@@ -1,9 +1,10 @@
-from accelerate.tracking import GeneralTracker, on_main_process
-from typing import Optional
-from rich.table import Table,Column
-from rich.console import Console
 import json
 from pathlib import Path
+from typing import Optional
+from accelerate.tracking import GeneralTracker, on_main_process
+from rich.console import Console
+from rich.table import Table,Column
+
 console = Console(color_system='auto')
 
 

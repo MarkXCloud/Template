@@ -7,8 +7,7 @@ import torchvision.transforms as T
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from evaluation import Accuracy
-from accelerate.utils import ProjectConfiguration
-from template.util import SaverConfiguration
+from template.util.custom_accelerator import SaverConfiguration
 
 # experiment tracker name
 wandb_log_name = "example_project"
@@ -70,11 +69,9 @@ metric = Accuracy(topk=(1, 5))
 
 # saver
 saver_config = SaverConfiguration(
+    automatic_checkpoint_naming=True,
+    total_limit=3,
     higher_is_better=True,
     monitor='accuracy@top1',
-    save_dir='./runs'
-)
-project_config = ProjectConfiguration(
-    automatic_checkpoint_naming=True,
-    total_limit=3
+    project_dir='./runs'
 )

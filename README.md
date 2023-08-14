@@ -15,7 +15,8 @@ It is very **tedious** to write a deep learning codebase with Trainer, Logger or
 6. Evaluation following [evaluate](https://huggingface.co/docs/evaluate/index), where we record the temp results and calculate the final metric at the end of one epoch. Initiate the evaluator in config, call it in test loop to record predictions, and finally compute all the metrics. If you want to use a custom metric you should rewrite `add_batch()` method and `compute()`method.
 7. Custom save strategy by rewriting `Accelerator` to save the latest checkpoint and the best model with specific metric, also you can resume from any checkpoint or validate the best model.
 8. Model #params and #MACS supported by [torchinfo](https://github.com/TylerYep/torchinfo) and [ptflops](https://github.com/LukasHedegaard/ptflops).
-9. All the codes are very simple and neat to make you easy to change everywhere for custom function. If you want to define other modules like loss or scheduler, you can just create a python file, write it and import it in you config.
+9. CLI (command line interface) to run your config file quickly.
+10. All the codes are very simple and neat to make you easy to change everywhere for custom function. If you want to define other modules like loss or scheduler, you can just create a python file, write it and import it in you config.
 
 # Requirements
 
@@ -29,12 +30,30 @@ It is very **tedious** to write a deep learning codebase with Trainer, Logger or
 - torchinfo
 - ptflops
 
+# Download
+
+To download the **rich** branch, run the code below:
+
+```sh
+git clone https://github.com/MarkXCloud/Template.git -b rich
+cd Template
+```
+
+And use pip to install everything:
+
+```sh
+pip install -e .
+```
+
+
+
+
 # Training
 
 To train a model directly:
 
 ```sh
-accelerate launch main.py train configs/res50_cifar10.py
+template train configs/res50_cifar10.py
 ```
 
 Then you can find your run under `runs/res50_cifar10/$local_time$/` with your config file and `.pt` weights.
@@ -42,27 +61,28 @@ Then you can find your run under `runs/res50_cifar10/$local_time$/` with your co
 To use distributed training:
 
 ```sh
-accelerate launch --multi_gpu main.py train configs/res50_cifar10.py
+tmeplate --multi_gpu train configs/res50_cifar10.py
 ```
-
-Other shell configurations please refer [accelerate](https://huggingface.co/docs/accelerate/index).
 
 Resume from any checkpoint:
 ```sh
-accelerate launch main.py train configs/res50_cifar10.py --resume YOUR/CHECKPOINT/FOLDER/PATH
+template train configs/res50_cifar10.py --resume YOUR/CHECKPOINT/FOLDER/PATH
 ```
 
+Other command line args are the same as [accelerate](https://huggingface.co/docs/accelerate/index).
+
 # Validation
+
 To validate a model:
 ```sh
-accelerate launch main.py val configs/res50_cifar10.py --load-form YOU/PATH/TO/WEIGHTS.pt
+template val configs/res50_cifar10.py --load-form YOU/PATH/TO/WEIGHTS.pt
 ```
 # Predict on a single image
 
 To perform prediction on a certain image:
 
 ```sh
-python main.py predict configs/res50_cifar10.py --img YOU/PATH/TO/IMAGE.jpg --load-form YOU/PATH/TO/WEIGHTS.pt
+template predict configs/res50_cifar10.py --img YOU/PATH/TO/IMAGE.jpg --load-form YOU/PATH/TO/WEIGHTS.pt
 ```
 
 And finally you can find the prediction by `./result/result.jpg` .
@@ -72,7 +92,7 @@ And finally you can find the prediction by `./result/result.jpg` .
 To show the #params and MACS of your model:
 
 ```sh
-python main.py info configs/res50_cifar10.py
+template info configs/res50_cifar10.py
 ```
 
 
@@ -82,7 +102,7 @@ python main.py info configs/res50_cifar10.py
 To search proper hyper parameters, you can run:
 
 ```sh
-python main.py hyper_search configs/res50_cifar10.py  --n_trials 3
+template hyper_search configs/res50_cifar10.py  --n_trials 3
 ```
 
 
@@ -103,6 +123,8 @@ model/ # your model
 	    |-ClsLoss.py # loss of classification
 runs/ # restore the weights and configs of one training run
 template/
+	|-main.py # launch all functions including train, val, predict, hyper parameter search and calculate MACS
+	|-template_cli.py # entry of CLI
 	|-launcher.py # launch functions in it
 	|-set_parser.py # parser
 	|-visualizer.py # visualizer for different labels
@@ -111,7 +133,7 @@ template/
 	    |-misc.py # some tools for distribution training
 	    |-custom_accelerator.py # custom accelerator
 	    |-rich.py # rich mudule
-main.py # launch all functions including train, val, predict, hyper parameter search and calculate MACS
+setup.py 
 ```
 
 No matter what modules you want to customize, you can just write it in the corresponding file and import it in your own config.

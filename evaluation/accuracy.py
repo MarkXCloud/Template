@@ -1,6 +1,5 @@
 import torch
 from ._BaseEvaluator import _Evaluator
-from collections import OrderedDict
 
 
 class Accuracy(_Evaluator):
@@ -15,7 +14,7 @@ class Accuracy(_Evaluator):
         self._buffer_label.append(label.cpu())
 
     @torch.no_grad()
-    def compute(self) -> OrderedDict:
+    def compute(self) -> dict:
         pred = torch.cat(self._buffer_pred, dim=0)
         label = torch.cat(self._buffer_label, dim=0)
         assert len(pred) == len(
@@ -26,11 +25,8 @@ class Accuracy(_Evaluator):
         pred = pred.t()
         correct = pred.eq(label.view(1, -1).expand_as(pred))
         num = label.shape[0]
-        res = OrderedDict()
-        for k in self.topk:
-            correct_k = correct[:k].float().sum()
-            res.update({f"accuracy@top{k}": correct_k.div_(num).item()})
 
+        res = {f"accuracy@top{k}":correct[:k].float().sum().div_(num).item() for k in self.topk}
         self._buffer_pred = []
         self._buffer_label = []
         return res
