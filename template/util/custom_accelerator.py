@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch.cuda.amp import GradScaler
 from pathlib import Path
-from dataclasses import dataclass,asdict
+from dataclasses import dataclass, asdict
 from types import MethodType
 import datetime
 from accelerate import Accelerator
@@ -50,6 +50,7 @@ if is_fp8_available():
     import transformer_engine.common.recipe as te_recipe
     from transformer_engine.pytorch import fp8_autocast
 from typing import Union, List, Any, Callable
+from template.util.grad_clip import GradClipper
 from template.util.rich import MainConsole
 
 if is_tpu_available(check_device=False):
@@ -71,21 +72,24 @@ class SaverConfiguration:
         """generate save direction by $CONFIG$/$current time$"""
         self.project_dir = Path(self.project_dir) / Path(config).stem / datetime.datetime.today().strftime(
             '%Y%m%d_%H_%M_%S')
-    def to_dict(self):
-        return {k:str(v) for k,v in asdict(self).items()}
 
+    def to_dict(self):
+        return {k: str(v) for k, v in asdict(self).items()}
 
 
 class SimplerAccelerator(Accelerator):
-    def __init__(self, *args, config: str, saver_config: SaverConfiguration | None = None, **kwargs):
+    def __init__(self, *args, config: str, saver_config: SaverConfiguration | None = None,
+                 grad_clipper: GradClipper | None = None, **kwargs):
         project_config = ProjectConfiguration(project_dir=saver_config.project_dir,
                                               automatic_checkpoint_naming=saver_config.automatic_checkpoint_naming,
                                               total_limit=saver_config.total_limit) if saver_config else None
         super(SimplerAccelerator, self).__init__(*args, **kwargs, project_config=project_config)
+        self.grad_clipper = grad_clipper
 
-        saver_config.project_dir.mkdir(parents=True, exist_ok=True)
-        console.log(f"Current project save dir: {saver_config.project_dir}")
-        shutil.copy(src=config, dst=saver_config.project_dir)
+        if self.is_local_main_process:
+            saver_config.project_dir.mkdir(parents=True, exist_ok=True)
+            console.log(f"Current project save dir: {saver_config.project_dir}")
+            shutil.copy(src=config, dst=saver_config.project_dir)
 
         self.hib = saver_config.higher_is_better
         self.monitor = saver_config.monitor
@@ -260,6 +264,41 @@ class SimplerAccelerator(Accelerator):
             torch.set_float32_matmul_precision('high')
             model = torch.compile(model, **self.state.dynamo_plugin.to_dict())
         return model
+
+    def backward(self, loss, **kwargs):
+        """
+        Scales the gradients in accordance to the `GradientAccumulationPlugin` and calls the correct `backward()` based
+        on the configuration.
+
+        Should be used in lieu of `loss.backward()`.
+
+        Example:
+
+        ```python
+        >>> from accelerate import Accelerator
+
+        >>> accelerator = Accelerator(gradient_accumulation_steps=2)
+        >>> outputs = model(inputs)
+        >>> loss = loss_fn(outputs, labels)
+        >>> accelerator.backward(loss)
+        ```
+        """
+        if self.distributed_type != DistributedType.DEEPSPEED:
+            # deepspeed handles loss scaling by gradient_accumulation_steps in its `backward`
+            loss = loss / self.gradient_accumulation_steps
+        if self.distributed_type == DistributedType.DEEPSPEED:
+            self.deepspeed_engine_wrapped.backward(loss, **kwargs)
+        elif self.distributed_type == DistributedType.MEGATRON_LM:
+            return
+        elif self.scaler is not None:
+            self.scaler.scale(loss).backward(**kwargs)
+        else:
+            loss.backward(**kwargs)
+
+        # clip gradient
+        if self.gradient_state.sync_gradients and self.grad_clipper is not None:
+            self.unscale_gradients()
+            self.grad_clipper.clip()
 
     @on_main_process
     def save_state(self, output_dir: Union[Path | str] = Path(''), **save_model_func_kwargs):

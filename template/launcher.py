@@ -24,6 +24,9 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
     # generate save_dir with current time
     saver_config.generate_config_path(config=config)
 
+    # gradient clip
+    grad_clipper =module_loader.grad_clipper
+
     # add loggers
     loggers = [SysTracker(logdir=saver_config.project_dir)]
     if wandb:
@@ -34,7 +37,8 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
     accelerator = SimplerAccelerator(config=config,
                                      log_with=loggers,
                                      saver_config=saver_config,
-                                     gradient_accumulation_steps=grad_step)
+                                     gradient_accumulation_steps=grad_step,
+                                     grad_clipper=grad_clipper)
     # seed all
     set_seed(seed, device_specific=True)
 
@@ -70,6 +74,7 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
                           num_proc=accelerator.num_processes,
                           gradient_accumulation_step=grad_step,
                           total_batch_size=batch_per_gpu * accelerator.num_processes * grad_step),
+        grad_clip=grad_clipper,
         saver=saver_config.to_dict(),
         distributed_type=accelerator.distributed_type.value,
         precision=accelerator.mixed_precision,
@@ -166,7 +171,7 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
 
 
 @torch.no_grad()
-def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4, torch_compile=False):
+def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4):
     with console.status("Loading modules...", spinner="aesthetic", spinner_style='cyan'):
         module_loader = load_module(config)
     # load configuration from the module
