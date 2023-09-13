@@ -7,7 +7,6 @@ from template.util.custom_accelerator import SimplerAccelerator
 from template.util.rich import MainConsole, track
 from template.util.tracker import SysTracker
 
-
 __all__ = ['train', 'val', 'predict', 'info', 'hyper_search']
 
 console = MainConsole(color_system='auto', log_time_format='[%Y.%m.%d %H:%M:%S]')
@@ -25,7 +24,7 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
     saver_config.generate_config_path(config=config)
 
     # gradient clip
-    grad_clipper =module_loader.grad_clipper
+    grad_clipper = module_loader.grad_clipper
 
     # add loggers
     loggers = [SysTracker(logdir=saver_config.project_dir)]
@@ -71,9 +70,9 @@ def train(config: str, epoch=24, seed=3407, batch_per_gpu=64, num_workers=4, gra
         learning_rate=module_loader.lr,
         dataset=repr(train_set),
         batch=dict(batch_per_gpu=batch_per_gpu,
-                          num_proc=accelerator.num_processes,
-                          gradient_accumulation_step=grad_step,
-                          total_batch_size=batch_per_gpu * accelerator.num_processes * grad_step),
+                   num_proc=accelerator.num_processes,
+                   gradient_accumulation_step=grad_step,
+                   total_batch_size=batch_per_gpu * accelerator.num_processes * grad_step),
         grad_clip=grad_clipper,
         saver=saver_config.to_dict(),
         distributed_type=accelerator.distributed_type.value,
@@ -211,7 +210,6 @@ def val(config: str, load_from: str, seed=3407, batch_per_gpu=64, num_workers=4)
         all_outputs, all_label = accelerator.gather_for_metrics((outputs, label))
         metric.add_batch(pred=all_outputs, label=all_label)
     metrics = metric.compute()
-
 
     accelerator.log(metrics, step=0)
     accelerator.end_training()

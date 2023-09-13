@@ -7,8 +7,7 @@ def main():
     args = parser.parse_args()
 
     if args.gpu_ids:
-        os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_ids
-        args.gpu_ids = None
+        args.num_processes = len(args.gpu_ids.split(','))
 
     args.module = True
 

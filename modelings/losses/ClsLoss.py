@@ -2,9 +2,9 @@ from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class ClsCrossEntropy(nn.CrossEntropyLoss):
     name = 'CrossEntropy'
-
 
     def forward(self, input: Tensor, target: Tensor) -> dict:
         return dict(
@@ -22,3 +22,14 @@ class ClsMSE(nn.MSELoss):
             loss=F.mse_loss(input, target, reduction=self.reduction)
         )
 
+
+class ClsBCEWithLogits(nn.BCEWithLogitsLoss):
+    name = 'BCEWithLogits'
+
+    def forward(self, input: Tensor, target: Tensor) -> dict:
+        return dict(
+            loss=F.binary_cross_entropy_with_logits(input, target,
+                                                    self.weight,
+                                                    pos_weight=self.pos_weight,
+                                                    reduction=self.reduction)
+        )
